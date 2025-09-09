@@ -2,8 +2,8 @@ import logging
 import json
 from typing import Dict, Any, List, Generator, Union, Optional
 from ollama import OllamaClient
-from cluster_agent import ClusterAgent
-from namespace_agent import NamespaceAgent
+from agents.cluster_agent import ClusterAgent
+from agents.namespace_agent import NamespaceAgent
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ class AgentManager:
             '{"agent": "kategori_adi", "reasoning": "neden_bu_kategori_secildi"}\n\n'
             "2. Genel sohbet edeceksen:\n"
             '{"agent": "chat", "reasoning": "genel_sohbet_nedeni", "response": "kullaniciya_verilecek_cevap"}\n\n'
-            "Yanıtında JSON objesi dışında KEHİNLİKLE hiçbir metin, açıklama veya formatlama işareti olmasın."
+            "Yanıtında JSON objesi dışında KESİNLİKLE hiçbir metin, açıklama veya formatlama işareti olmasın."
         )
     
     def route_request(self, prompt: str) -> Union[Dict[str, Any], Generator[str, None, None]]:

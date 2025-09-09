@@ -16,7 +16,7 @@ class ClusterAgent(BaseAgent):
             description="Kubernetes cluster'larını yönetir, listeler, oluşturur ve günceller."
         )
         self.tool_manager = ToolManager()
-        self.cluster_api = ClusterAPITools(base_url="http://localhost:8000")
+        self.cluster_api = ClusterAPITools(base_url="http://10.67.67.195:8000")
     
     def get_tools(self) -> Dict[str, Any]:
         """Cluster işlemleri için mevcut araçları döndürür"""

@@ -3,28 +3,26 @@ import json
 from typing import Dict, Any
 
 class ClusterAPITools:
-    def __init__(self, base_url: str = "https://api.kubex.com"):
+    def __init__(self, base_url: str = "http://10.67.67.195:8000"):
         self.base_url = base_url
 
     def _make_request(self, method: str, endpoint: str, **kwargs) -> Dict[str, Any]:
-        """API'ye istek yapmak için bir yardımcı fonksiyon (Şu an simülasyon)."""
-        print(f"SİMÜLASYON: API Çağrısı -> {method} {self.base_url}{endpoint} with {kwargs}")
+        print(f"API Çağrısı -> {method} {self.base_url}{endpoint} with {kwargs}")
         
-        # Gerçek bir uygulamada burada requests kütüphanesi ile çağrı yapılır.
-        # Örnek:
-        # try:
-        #     response = requests.request(method, f"{self.base_url}{endpoint}", **kwargs)
-        #     response.raise_for_status()
-        #     return response.json()
-        # except requests.RequestException as e:
-        #     return {"error": str(e)}
+     
+        try:
+            response = requests.request(method, f"{self.base_url}{endpoint}", **kwargs)
+            response.raise_for_status()
+            return response.json()
+        except requests.RequestException as e:
+            return {"error": str(e)}
 
-        # Şimdilik başarılı bir yanıtı simüle ediyoruz.
+        """# Şimdilik başarılı bir yanıtı simüle ediyoruz.
         return {
             "status": "success",
             "message": f"'{endpoint}' endpoint'i başarıyla çağrıldı.",
             "data": kwargs
-        }
+        }"""
 
     def list_clusters(self, **kwargs) -> Dict[str, Any]:
         return self._make_request("GET", "/clusters")
