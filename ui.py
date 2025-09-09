@@ -6,7 +6,6 @@ from ollama import OllamaClient
 from agent import KubernetesAgent
 
 # --- Logger Kurulumu ---
-# Konsolda daha detaylı bilgi görmek için log seviyesini ayarlayabilirsiniz.
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -22,7 +21,6 @@ if "agent" not in st.session_state:
     st.session_state.connected = False
     st.session_state.messages = []
     st.session_state.pending_action = None
-
 
 def parse_and_display_response(full_response: str):
     thinking_pattern = re.compile(r"<think>(.*?)</think>", re.DOTALL)
@@ -43,8 +41,6 @@ def parse_and_display_response(full_response: str):
         with st.expander("Modelin Düşünce Adımları 🧠"):
             st.markdown(f"```\n{thinking_content}\n```")
 
-# --- Arayüz ---
-
 # --- Kenar Çubuğu (Sidebar) ---
 with st.sidebar:
     st.header("⚙️ Yapılandırma")
@@ -60,7 +56,7 @@ with st.sidebar:
                     st.session_state.agent = KubernetesAgent(client)
                     st.session_state.connected = True
                     st.success(f"Başarıyla bağlanıldı!\n\n**Model:** {model_name}")
-                    st.rerun() # Bağlantı sonrası arayüzü yenile
+                    st.rerun()
                 else:
                     st.error("Sunucuya ulaşıldı ancak API yanıt vermiyor. Ollama'nın çalıştığından emin olun.")
             except Exception as e:
@@ -69,12 +65,22 @@ with st.sidebar:
 
     if st.session_state.connected:
         st.divider()
+        
+        # Parametre bekleme durumunu göster
+        if st.session_state.agent and st.session_state.agent.waiting_for_parameters:
+            st.warning("⏳ Parametre bekleniyor...")
+            if st.session_state.agent.current_tool_context:
+                tool_name = st.session_state.agent.current_tool_context["tool_name"]
+                missing = st.session_state.agent.current_tool_context["missing_params"]
+                st.caption(f"Araç: `{tool_name}`")
+                st.caption(f"Eksik: {', '.join(missing)}")
+        
         if st.button("Sohbeti Temizle"):
             st.session_state.messages = []
             st.session_state.pending_action = None
-            # Ajanın içindeki sohbet geçmişini de temizle
+            # Ajanın tüm durumunu sıfırla
             if st.session_state.agent:
-                st.session_state.agent.client.clear_chat_history()
+                st.session_state.agent.reset_context()
             st.rerun()
 
 # --- Ana Sohbet Arayüzü ---
@@ -83,7 +89,6 @@ st.title("KUBEX Asistanı")
 # Geçmiş sohbet mesajlarını ekrana yazdır
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
-        # Her mesajı <think> etiketlerine karşı kontrol et
         parse_and_display_response(message["content"])
 
 if st.session_state.connected:
@@ -92,27 +97,39 @@ if st.session_state.connected:
         pending = st.session_state.pending_action
         with st.form("parameter_form"):
             st.warning("İşlemi tamamlamak için ek bilgilere ihtiyacım var:")
+            st.info(f"**Araç:** {pending['tool_name']}")
+            
             collected_params = {}
             for i, param in enumerate(pending["missing_params"]):
                 question = pending["questions"][i] if i < len(pending["questions"]) else f"{param} nedir?"
                 collected_params[param] = st.text_input(question, key=f"param_{param}_{i}")
 
-            submitted = st.form_submit_button("Bilgileri Gönder")
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                submitted = st.form_submit_button("Bilgileri Gönder", type="primary")
+            with col2:
+                cancelled = st.form_submit_button("İptal Et")
+            
+            if cancelled:
+                # İşlemi iptal et ve durumu sıfırla
+                st.session_state.pending_action = None
+                if st.session_state.agent:
+                    st.session_state.agent.waiting_for_parameters = False
+                    st.session_state.agent.current_tool_context = None
+                st.rerun()
+                
             if submitted:
                 # Form gönderildikten sonra asistan mesaj baloncuğu oluştur
                 with st.chat_message("assistant"):
-                    # finalize_request'i çağır ve dönen canlı akışı (generator) yakala
                     response_generator = st.session_state.agent.finalize_request(
                         pending["tool_name"],
                         pending["extracted_params"],
                         collected_params
                     )
-                    # st.write_stream ile canlı yanıtı ekrana yazdır
                     full_response_content = st.write_stream(response_generator)
 
                 # Tamamlanan yanıtı sohbet geçmişine ekle
                 st.session_state.messages.append({"role": "assistant", "content": full_response_content})
-                # Bekleyen işlemi temizle ve arayüzü yenile
                 st.session_state.pending_action = None
                 st.rerun()
 
@@ -128,6 +145,7 @@ if st.session_state.connected:
 
             if isinstance(response, dict) and response.get("status") == "needs_parameters":
                 st.session_state.pending_action = response
+                st.info("Eksik parametreler tespit edildi. Form hazırlanıyor...")
                 st.rerun() 
             else:
                 response_placeholder = st.empty()
@@ -141,4 +159,3 @@ if st.session_state.connected:
                 st.session_state.messages.append({"role": "assistant", "content": full_response_content})
 else:
     st.info("👈 Lütfen önce kenar çubuğundan Ollama sunucusuna bağlanın.")
-
