@@ -1,7 +1,7 @@
 from typing import Dict, Any, Generator
 from base_agent import BaseAgent
-from cluster_tools.tool_manager import ToolManager
-from cluster_tools.cluster_tools import ClusterAPITools
+from tools.cluster_tools.tool_manager import ToolManager
+from tools.cluster_tools.cluster_tools import ClusterAPITools
 import logging
 
 logger = logging.getLogger(__name__)

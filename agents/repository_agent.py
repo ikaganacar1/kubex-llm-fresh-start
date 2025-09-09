@@ -1,38 +1,38 @@
 from typing import Dict, Any, Generator
 from base_agent import BaseAgent
-from tools.namespace_tools.namespace_tools import NamespaceAPITools
-from tools.namespace_tools.tool_manager import NamespaceToolManager
+from tools.repository_tools.repository_tools import RepositoryAPITools
+from tools.repository_tools.tool_manager import RepositoryToolManager
 import logging
 
 logger = logging.getLogger(__name__)
 
-class NamespaceAgent(BaseAgent):
-    """Kubernetes Namespace işlemleri için özelleşmiş agent - İyileştirilmiş context yönetimi ile"""
+class RepositoryAgent(BaseAgent):
+    """Kubernetes Helm Repository işlemleri için özelleşmiş agent - İyileştirilmiş context yönetimi ile"""
     
     def __init__(self, client):
         super().__init__(
             client=client,
-            category="Kubernetes Namespace",
-            description="Kubernetes namespace'lerini yönetir, listeler ve detaylarını gösterir."
+            category="Helm Repository",
+            description="Helm repository'lerini yönetir, chart'ları listeler ve yükler."
         )
-        self.tool_manager = NamespaceToolManager()
+        self.tool_manager = RepositoryToolManager()
         # Client'tan base_url'i al veya default kullan
         base_url = getattr(client, 'base_url', 'http://10.67.67.195:8000')
-        self.namespace_api = NamespaceAPITools(base_url=base_url)
+        self.repository_api = RepositoryAPITools(base_url=base_url)
     
     def get_tools(self) -> Dict[str, Any]:
-        """Namespace işlemleri için mevcut araçları döndürür"""
+        """Repository işlemleri için mevcut araçları döndürür"""
         return self.tool_manager.tools
     
     def execute_tool(self, tool_name: str, parameters: Dict[str, Any], original_request: str = None) -> Generator[str, None, None]:
-        """Namespace aracını çalıştırır - iyileştirilmiş context ile"""
+        """Repository aracını çalıştırır - iyileştirilmiş context ile"""
         logger.info(f"[{self.category}] Araç çalıştırılıyor: '{tool_name}', Parametreler: {parameters}")
         
         # Original request'i güncelle
         if original_request:
             self.last_user_request = original_request
         
-        tool_function = getattr(self.namespace_api, tool_name, None)
+        tool_function = getattr(self.repository_api, tool_name, None)
         if not tool_function:
             logger.error(f"[{self.category}] '{tool_name}' aracı için fonksiyon bulunamadı.")
             error_msg = f"'{tool_name}' adlı aracın çalıştırma metodu bulunamadı."

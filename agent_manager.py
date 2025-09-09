@@ -4,6 +4,7 @@ from typing import Dict, Any, List, Generator, Union, Optional
 from ollama import OllamaClient
 from agents.cluster_agent import ClusterAgent
 from agents.namespace_agent import NamespaceAgent
+from agents.deployment_agent import DeploymentAgent
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +27,7 @@ class AgentManager:
         return {
             "cluster": ClusterAgent(self.client),
             "namespace": NamespaceAgent(self.client),
-            # Gelecekte eklenecekler:
-            # "deployment": DeploymentAgent(self.client),
+            "deployment": DeploymentAgent(self.client),
             # "service": ServiceAgent(self.client),
             # "pod": PodAgent(self.client),
         }

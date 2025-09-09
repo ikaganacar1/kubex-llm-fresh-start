@@ -1,12 +1,12 @@
 from typing import Dict, Any, Generator
 from base_agent import BaseAgent
-from tools.namespace_tools.namespace_tools import NamespaceAPITools
-from tools.namespace_tools.tool_manager import NamespaceToolManager
+from tools.deployment_tools.deployment_tools import DeploymentAPITools
+from tools.deployment_tools.tool_manager import DeploymentToolManager
 import logging
 
 logger = logging.getLogger(__name__)
 
-class NamespaceAgent(BaseAgent):
+class DeploymentAgent(BaseAgent):
     """Kubernetes Namespace işlemleri için özelleşmiş agent - İyileştirilmiş context yönetimi ile"""
     
     def __init__(self, client):
@@ -15,10 +15,10 @@ class NamespaceAgent(BaseAgent):
             category="Kubernetes Namespace",
             description="Kubernetes namespace'lerini yönetir, listeler ve detaylarını gösterir."
         )
-        self.tool_manager = NamespaceToolManager()
+        self.tool_manager = DeploymentToolManager()
         # Client'tan base_url'i al veya default kullan
         base_url = getattr(client, 'base_url', 'http://10.67.67.195:8000')
-        self.namespace_api = NamespaceAPITools(base_url=base_url)
+        self.namespace_api = DeploymentAPITools(base_url=base_url)
     
     def get_tools(self) -> Dict[str, Any]:
         """Namespace işlemleri için mevcut araçları döndürür"""
