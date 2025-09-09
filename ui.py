@@ -3,7 +3,7 @@ import logging
 import re
 
 from ollama import OllamaClient
-from agent import KubernetesAgent
+from agent_manager import AgentManager
 
 # --- Logger Kurulumu ---
 logging.basicConfig(level=logging.INFO)
@@ -11,13 +11,13 @@ logger = logging.getLogger(__name__)
 
 # --- Sayfa Yapılandırması ---
 st.set_page_config(
-    page_title="KUBEX Asistanı",
+    page_title="KUBEX Multi-Agent Asistanı",
     page_icon="🧩",
     layout="wide"
 )
 
-if "agent" not in st.session_state:
-    st.session_state.agent = None
+if "agent_manager" not in st.session_state:
+    st.session_state.agent_manager = None
     st.session_state.connected = False
     st.session_state.messages = []
     st.session_state.pending_action = None
@@ -30,13 +30,10 @@ def parse_and_display_response(full_response: str):
     match = thinking_pattern.search(full_response)
     if match:
         thinking_content = match.group(1).strip()
-        # Ana metinden <think> bloğunu temizle
         main_content = thinking_pattern.sub("", full_response).strip()
 
-    # Sadece içerik varsa markdown olarak yazdır
     if main_content:
         st.markdown(main_content)
-    # Sadece düşünce adımları varsa expander içinde göster
     if thinking_content:
         with st.expander("Modelin Düşünce Adımları 🧠"):
             st.markdown(f"```\n{thinking_content}\n```")
@@ -51,9 +48,8 @@ with st.sidebar:
         with st.spinner("Bağlanılıyor..."):
             try:
                 client = OllamaClient(base_url=base_url, model_name=model_name)
-                # Bağlantıyı test et
                 if client.test_connection():
-                    st.session_state.agent = KubernetesAgent(client)
+                    st.session_state.agent_manager = AgentManager(client)
                     st.session_state.connected = True
                     st.success(f"Başarıyla bağlanıldı!\n\n**Model:** {model_name}")
                     st.rerun()
@@ -63,28 +59,44 @@ with st.sidebar:
                 st.error(f"Bağlanırken bir hata oluştu: {e}")
                 logger.error(f"Bağlantı hatası: {e}")
 
-    if st.session_state.connected:
+    if st.session_state.connected and st.session_state.agent_manager:
         st.divider()
         
-        # Parametre bekleme durumunu göster
-        if st.session_state.agent and st.session_state.agent.waiting_for_parameters:
-            st.warning("⏳ Parametre bekleniyor...")
-            if st.session_state.agent.current_tool_context:
-                tool_name = st.session_state.agent.current_tool_context["tool_name"]
-                missing = st.session_state.agent.current_tool_context["missing_params"]
-                st.caption(f"Araç: `{tool_name}`")
-                st.caption(f"Eksik: {', '.join(missing)}")
+        # Mevcut durumu göster
+        status = st.session_state.agent_manager.get_current_status()
+        if status["active_agent"]:
+            st.success(f"🤖 **Aktif Agent:** {status['active_agent']}")
+            
+            if status["waiting_for_parameters"]:
+                st.warning("⏳ Parametre bekleniyor...")
+                if status["tool_context"]:
+                    tool_name = status["tool_context"]["tool_name"]
+                    missing = status["tool_context"]["missing_params"]
+                    st.caption(f"Araç: `{tool_name}`")
+                    st.caption(f"Eksik: {', '.join(missing)}")
+        else:
+            st.info("🎯 **Router Modu:** İstek kategorisi bekleniyor")
         
-        if st.button("Sohbeti Temizle"):
+        # Mevcut kategoriler
+        categories = st.session_state.agent_manager.get_available_categories()
+        st.subheader("📂 Mevcut Kategoriler")
+        for category in categories:
+            agent = st.session_state.agent_manager.agents[category]
+            st.caption(f"• **{agent.category}**")
+            st.caption(f"  {agent.description}", unsafe_allow_html=True)
+        
+        st.divider()
+        
+        if st.button("🗑️ Tüm Bağlamları Temizle"):
             st.session_state.messages = []
             st.session_state.pending_action = None
-            # Ajanın tüm durumunu sıfırla
-            if st.session_state.agent:
-                st.session_state.agent.reset_context()
+            if st.session_state.agent_manager:
+                st.session_state.agent_manager.reset_all_contexts()
+            st.success("Tüm bağlamlar temizlendi!")
             st.rerun()
 
 # --- Ana Sohbet Arayüzü ---
-st.title("KUBEX Asistanı")
+st.title("🧩 KUBEX Multi-Agent Asistanı")
 
 # Geçmiş sohbet mesajlarını ekrana yazdır
 for message in st.session_state.messages:
@@ -97,7 +109,12 @@ if st.session_state.connected:
         pending = st.session_state.pending_action
         with st.form("parameter_form"):
             st.warning("İşlemi tamamlamak için ek bilgilere ihtiyacım var:")
-            st.info(f"**Araç:** {pending['tool_name']}")
+            
+            # Aktif agent bilgisi
+            status = st.session_state.agent_manager.get_current_status()
+            if status["active_agent"]:
+                st.info(f"**Aktif Agent:** {status['active_agent']}")
+                st.info(f"**Araç:** {pending['tool_name']}")
             
             collected_params = {}
             for i, param in enumerate(pending["missing_params"]):
@@ -113,15 +130,14 @@ if st.session_state.connected:
             if cancelled:
                 # İşlemi iptal et ve durumu sıfırla
                 st.session_state.pending_action = None
-                if st.session_state.agent:
-                    st.session_state.agent.waiting_for_parameters = False
-                    st.session_state.agent.current_tool_context = None
+                if st.session_state.agent_manager:
+                    st.session_state.agent_manager.reset_all_contexts()
                 st.rerun()
                 
             if submitted:
                 # Form gönderildikten sonra asistan mesaj baloncuğu oluştur
                 with st.chat_message("assistant"):
-                    response_generator = st.session_state.agent.finalize_request(
+                    response_generator = st.session_state.agent_manager.finalize_request(
                         pending["tool_name"],
                         pending["extracted_params"],
                         collected_params
@@ -134,14 +150,15 @@ if st.session_state.connected:
                 st.rerun()
 
     # DURUM 2: Normal sohbet girişi
-    if prompt := st.chat_input("Kubernetes ile ilgili bir soru sorun..."):
+    if prompt := st.chat_input("Kubernetes ile ilgili bir soru sorun... (örn: cluster listesi, namespace oluştur, deployment durumu)"):
         # Kullanıcı mesajını geçmişe ve ekrana ekle
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
 
         with st.chat_message("assistant"):
-            response = st.session_state.agent.process_request(prompt)
+            # Router üzerinden işlemi başlat
+            response = st.session_state.agent_manager.route_request(prompt)
 
             if isinstance(response, dict) and response.get("status") == "needs_parameters":
                 st.session_state.pending_action = response
@@ -157,5 +174,65 @@ if st.session_state.connected:
 
                 # Tamamlanan yanıtı sohbet geçmişine ekle
                 st.session_state.messages.append({"role": "assistant", "content": full_response_content})
+
+    # Yardımcı örnekler
+    st.divider()
+    
+    with st.expander("💡 Örnek Komutlar"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("🏗️ Cluster İşlemleri")
+            st.code("cluster listesi göster")
+            st.code("yeni cluster oluştur")
+            st.code("cluster detaylarını göster")
+            st.code("cluster özet bilgisi ver")
+            
+        with col2:
+            st.subheader("📦 Namespace İşlemleri")
+            st.code("namespace listesini göster")
+            st.code("production namespace'i oluştur")
+            st.code("test namespace'ini sil")
+            st.code("namespace durumları nedir")
+
 else:
     st.info("👈 Lütfen önce kenar çubuğundan Ollama sunucusuna bağlanın.")
+    
+    # Bağlantı yokken sistem açıklaması göster
+    st.divider()
+    st.subheader("🤖 Multi-Agent Mimarisi")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("""
+        **🎯 Router Agent**
+        - Kullanıcı isteklerini analiz eder
+        - Uygun kategoriye yönlendirir
+        - Genel sohbet soularını yanıtlar
+        """)
+        
+        st.markdown("""
+        **🏗️ Cluster Agent**
+        - Kubernetes cluster yönetimi
+        - Cluster oluşturma/listeleme
+        - Cluster güncelleme işlemleri
+        """)
+        
+    with col2:
+        st.markdown("""
+        **📦 Namespace Agent**
+        - Namespace yönetimi
+        - Namespace oluşturma/silme
+        - Namespace durum kontrolü
+        """)
+        
+        st.markdown("""
+        **🔮 Gelecek Eklentiler**
+        - Deployment Agent
+        - Service Agent  
+        - Pod Agent
+        - ConfigMap Agent
+        """)
+    
+    st.info("Her agent kendi özel alanında uzmanlaşmış ve bağımsız çalışabilir!")
