@@ -21,6 +21,7 @@ if "agent_manager" not in st.session_state:
     st.session_state.connected = False
     st.session_state.messages = []
     st.session_state.pending_action = None
+    st.session_state.show_debug = False  # YENI: Debug panel toggle
 
 def parse_and_display_response(full_response: str):
     thinking_pattern = re.compile(r"<think>(.*?)</think>", re.DOTALL)
@@ -62,7 +63,10 @@ with st.sidebar:
     if st.session_state.connected and st.session_state.agent_manager:
         st.divider()
         
-        # Mevcut durumu göster
+        # YENI: Debug panel toggle
+        st.session_state.show_debug = st.checkbox("🔍 Debug Panel", value=st.session_state.show_debug)
+        
+        # Mevcut durumu göster - YENI: Geliştirilmiş status display
         status = st.session_state.agent_manager.get_current_status()
         if status["active_agent"]:
             st.success(f"🤖 **Aktif Agent:** {status['active_agent']}")
@@ -74,8 +78,30 @@ with st.sidebar:
                     missing = status["tool_context"]["missing_params"]
                     st.caption(f"Araç: `{tool_name}`")
                     st.caption(f"Eksik: {', '.join(missing)}")
+            
+            # YENI: Context information
+            if st.session_state.show_debug:
+                st.caption(f"🧠 Global Context: {status['global_context_size']} etkileşim")
+                st.caption(f"🔧 Tool Etkileşimleri: {status['last_interactions']}")
         else:
             st.info("🎯 **Router Modu:** İstek kategorisi bekleniyor")
+        
+        # YENI: Debug panel
+        if st.session_state.show_debug:
+            with st.expander("🔍 Memory Debug Panel", expanded=False):
+                if hasattr(st.session_state.agent_manager, 'get_conversation_summary'):
+                    summary = st.session_state.agent_manager.get_conversation_summary()
+                    st.text_area("Conversation Memory", summary, height=200)
+                
+                # Current agent memory
+                if st.session_state.agent_manager.current_agent:
+                    agent = st.session_state.agent_manager.current_agent
+                    if hasattr(agent, 'conversation_context') and agent.conversation_context:
+                        st.subheader(f"{agent.category} Local Context")
+                        for i, ctx in enumerate(agent.conversation_context[-3:]):
+                            st.caption(f"**Etkileşim {i+1}:**")
+                            st.caption(f"👤 User: {ctx['user'][:100]}...")
+                            st.caption(f"🤖 Agent: {ctx['assistant'][:100]}...")
         
         # Mevcut kategoriler
         categories = st.session_state.agent_manager.get_available_categories()
@@ -87,16 +113,34 @@ with st.sidebar:
         
         st.divider()
         
-        if st.button("🗑️ Tüm Bağlamları Temizle"):
-            st.session_state.messages = []
-            st.session_state.pending_action = None
-            if st.session_state.agent_manager:
-                st.session_state.agent_manager.reset_all_contexts()
-            st.success("Tüm bağlamlar temizlendi!")
-            st.rerun()
+        # YENI: Reset seçenekleri
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("🔄 Soft Reset"):
+                if st.session_state.agent_manager:
+                    st.session_state.agent_manager.soft_reset_contexts()
+                st.success("İşlem durumu sıfırlandı, memory korundu!")
+                st.rerun()
+        
+        with col2:
+            if st.button("🗑️ Full Reset"):
+                st.session_state.messages = []
+                st.session_state.pending_action = None
+                if st.session_state.agent_manager:
+                    st.session_state.agent_manager.reset_all_contexts()
+                st.success("Tüm bağlamlar temizlendi!")
+                st.rerun()
 
 # --- Ana Sohbet Arayüzü ---
 st.title("🧩 KUBEX Multi-Agent Asistanı")
+
+# YENI: Memory durumu göstergesi
+if st.session_state.connected and st.session_state.agent_manager:
+    status = st.session_state.agent_manager.get_current_status()
+    if status["global_context_size"] > 0:
+        st.info(f"💾 **Memory:** {status['global_context_size']} etkileşim | "
+                f"🤖 **Aktif Agent:** {status['active_agent'] or 'Router'}")
 
 # Geçmiş sohbet mesajlarını ekrana yazdır
 for message in st.session_state.messages:
@@ -116,6 +160,11 @@ if st.session_state.connected:
                 st.info(f"**Aktif Agent:** {status['active_agent']}")
                 st.info(f"**Araç:** {pending['tool_name']}")
             
+            # YENI: Original request bilgisini göster
+            if "original_request" in pending.get("extracted_params", {}):
+                original = pending["extracted_params"]["original_request"]
+                st.caption(f"📝 **Orijinal İstek:** {original[:100]}...")
+            
             collected_params = {}
             for i, param in enumerate(pending["missing_params"]):
                 question = pending["questions"][i] if i < len(pending["questions"]) else f"{param} nedir?"
@@ -128,10 +177,10 @@ if st.session_state.connected:
                 cancelled = st.form_submit_button("İptal Et")
             
             if cancelled:
-                # İşlemi iptal et ve durumu sıfırla
+                # İşlemi iptal et ve soft reset yap
                 st.session_state.pending_action = None
                 if st.session_state.agent_manager:
-                    st.session_state.agent_manager.reset_all_contexts()
+                    st.session_state.agent_manager.soft_reset_contexts()  # YENI: Soft reset
                 st.rerun()
                 
             if submitted:
@@ -175,10 +224,10 @@ if st.session_state.connected:
                 # Tamamlanan yanıtı sohbet geçmişine ekle
                 st.session_state.messages.append({"role": "assistant", "content": full_response_content})
 
-    # Yardımcı örnekler
+    # Yardımcı örnekler - YENI: Context-aware examples
     st.divider()
     
-    with st.expander("💡 Örnek Komutlar"):
+    with st.expander("💡 Örnek Komutlar & Test Senaryoları"):
         col1, col2 = st.columns(2)
         
         with col1:
@@ -188,12 +237,22 @@ if st.session_state.connected:
             st.code("cluster detaylarını göster")
             st.code("cluster özet bilgisi ver")
             
+            st.subheader("🧠 Memory Test")
+            st.code("Bu liste kaç cluster gösteriyor?")
+            st.code("Hangisi en yenisi?")
+            st.code("Önceki sonuçta hangi cluster'lar vardı?")
+            
         with col2:
             st.subheader("📦 Namespace İşlemleri")
             st.code("namespace listesini göster")
             st.code("production namespace'i oluştur")
             st.code("test namespace'ini sil")
             st.code("namespace durumları nedir")
+            
+            st.subheader("🔄 Context Takip")
+            st.code("Bu namespacelar hangi cluster'da?")
+            st.code("Bunları nasıl yönetebilirim?")
+            st.code("Daha detay bilgi ver")
 
 else:
     st.info("👈 Lütfen önce kenar çubuğundan Ollama sunucusuna bağlanın.")
@@ -210,6 +269,7 @@ else:
         - Kullanıcı isteklerini analiz eder
         - Uygun kategoriye yönlendirir
         - Genel sohbet soularını yanıtlar
+        - **🆕 Global context yönetimi**
         """)
         
         st.markdown("""
@@ -217,6 +277,7 @@ else:
         - Kubernetes cluster yönetimi
         - Cluster oluşturma/listeleme
         - Cluster güncelleme işlemleri
+        - **🆕 Context-aware responses**
         """)
         
     with col2:
@@ -225,14 +286,15 @@ else:
         - Namespace yönetimi
         - Namespace oluşturma/silme
         - Namespace durum kontrolü
+        - **🆕 Memory integration**
         """)
         
         st.markdown("""
-        **🔮 Gelecek Eklentiler**
-        - Deployment Agent
-        - Service Agent  
-        - Pod Agent
-        - ConfigMap Agent
+        **🧠 İyileştirmeler**
+        - ✅ Orijinal soru hatırlanır
+        - ✅ Tool sonuçları context-aware
+        - ✅ Agent'lar arası memory paylaşımı
+        - ✅ Önceki yanıtlar referans edilir
         """)
     
-    st.info("Her agent kendi özel alanında uzmanlaşmış ve bağımsız çalışabilir!")
+    st.info("Her agent kendi özel alanında uzmanlaşmış ve **conversation memory** ile donatılmıştır!")

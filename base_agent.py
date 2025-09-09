@@ -1,11 +1,12 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List, Generator, Union
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
 class BaseAgent(ABC):
-    """Tüm ajanlar için temel sınıf"""
+    """Tüm ajanlar için temel sınıf - İyileştirilmiş memory ve context yönetimi ile"""
     
     def __init__(self, client, category: str, description: str):
         self.client = client
@@ -13,6 +14,9 @@ class BaseAgent(ABC):
         self.description = description
         self.waiting_for_parameters = False
         self.current_tool_context = None
+        # YENI: Son kullanıcı isteğini sakla
+        self.last_user_request = None
+        self.conversation_context = []  # YENI: Conversation summary için
     
     @abstractmethod
     def get_tools(self) -> Dict[str, Any]:
@@ -20,7 +24,7 @@ class BaseAgent(ABC):
         pass
     
     @abstractmethod
-    def execute_tool(self, tool_name: str, parameters: Dict[str, Any]) -> Generator[str, None, None]:
+    def execute_tool(self, tool_name: str, parameters: Dict[str, Any], original_request: str = None) -> Generator[str, None, None]:
         """Belirtilen aracı çalıştırır"""
         pass
     
@@ -39,14 +43,22 @@ class BaseAgent(ABC):
             )
         tools_prompt = "\n".join(tools_description_lines)
 
+        # YENI: Context bilgisi eklendi
+        context_info = ""
+        if self.conversation_context:
+            context_info = f"\n\nSON SOHBET OZETI:\n{self._get_conversation_summary()}\n"
+
         return (
             f"Sen {self.category} uzmanı bir asistansın. {self.description}\n\n"
             f"{tools_prompt}\n\n"
+            f"{context_info}"
             "ONEMLI KURALLAR:\n"
             "1. Eger daha once bir arac sectin ve parametreler eksikse, kullanicinin yeni mesajlarini "
             "o aracin eksik parametrelerini tamamlamak icin kullan.\n"
             "2. Kullanici tamamen farkli bir konu actiginda yeni bir arac sec veya sohbet et.\n"
-            "3. Parametre toplama sirasinda kullaniciya sabir goster ve eksik bilgileri net sor.\n\n"
+            "3. Parametre toplama sirasinda kullaniciya sabir goster ve eksik bilgileri net sor.\n"
+            "4. ONEMLI: Tool sonuclarini verirken kullanicinin ORIJINAL SORUSUNU ve BAGLAMINI unutma!\n"
+            "5. Onceki yanıtlarin hakkinda soru sorulursa conversation context'ini kullan.\n\n"
             "Kullanicinin istegini analiz ettikten sonra, YALNIZCA bir JSON objesi dondur:\n\n"
             "1. Arac kullanacaksan:\n"
             '{"tool_name": "kullanilacak_arac_adi", "parameters": {"parametre_adi": "deger"}}\n\n'
@@ -59,10 +71,41 @@ class BaseAgent(ABC):
         """Bağlamı sıfırla"""
         self.waiting_for_parameters = False
         self.current_tool_context = None
+        # YENI: Tam reset yapmak yerine conversation_context'i koru
+        # self.conversation_context = []  # Bunu kaldırdık
+        self.last_user_request = None
+    
+    def add_to_conversation_context(self, user_message: str, assistant_response: str):
+        """YENI: Conversation context'e yeni etkileşim ekle"""
+        self.conversation_context.append({
+            "user": user_message,
+            "assistant": assistant_response,
+            "timestamp": "recent"
+        })
+        
+        # Memory limitini koru (son 5 etkileşim)
+        if len(self.conversation_context) > 5:
+            self.conversation_context = self.conversation_context[-5:]
+    
+    def _get_conversation_summary(self) -> str:
+        """YENI: Conversation context'in özetini döndür"""
+        if not self.conversation_context:
+            return "Henuz bir sohbet gecmisi yok."
+            
+        summary_parts = []
+        for i, interaction in enumerate(self.conversation_context[-3:], 1):  # Son 3 etkileşim
+            user_msg = interaction["user"][:100] + "..." if len(interaction["user"]) > 100 else interaction["user"]
+            assistant_msg = interaction["assistant"][:100] + "..." if len(interaction["assistant"]) > 100 else interaction["assistant"]
+            summary_parts.append(f"{i}. Kullanici: {user_msg}\n   Asistan: {assistant_msg}")
+        
+        return "\n".join(summary_parts)
     
     def process_request(self, prompt: str) -> Union[Dict[str, Any], Generator[str, None, None]]:
-        """İsteği işle - temel mantık"""
+        """İsteği işle - iyileştirilmiş memory management ile"""
         logger.info(f"[{self.category}] İstek işleniyor: {prompt}")
+        
+        # YENI: Son kullanıcı isteğini sakla
+        self.last_user_request = prompt
         
         llm_decision = self._call_llm_for_tool_selection(prompt, use_history=True)
         tool_name = llm_decision.get("tool_name")
@@ -72,6 +115,10 @@ class BaseAgent(ABC):
             response_text = parameters.get("response", f"{self.category} ile ilgili size nasil yardimci olabilirim?")
             self.waiting_for_parameters = False
             self.current_tool_context = None
+            
+            # YENI: Chat response'u context'e ekle
+            self.add_to_conversation_context(prompt, response_text)
+            
             def stream_response():
                 yield response_text
             return stream_response()
@@ -97,7 +144,8 @@ class BaseAgent(ABC):
             self.current_tool_context = {
                 "tool_name": tool_name,
                 "missing_params": missing_params,
-                "extracted_params": parameters
+                "extracted_params": parameters,
+                "original_request": prompt  # YENI: Orijinal isteği sakla
             }
             
             return {
@@ -113,19 +161,28 @@ class BaseAgent(ABC):
         return self.execute_tool(tool_name, parameters)
 
     def finalize_request(self, tool_name: str, extracted_params: dict, collected_params: dict) -> Generator[str, None, None]:
-        """Parametre toplama tamamlandıktan sonra aracı çalıştır"""
+        """Parametre toplama tamamlandıktan sonra aracı çalıştır - iyileştirilmiş context ile"""
         all_params = {**extracted_params, **collected_params}
         self.waiting_for_parameters = False
+        
+        # YENI: Original request'i context'ten al
+        original_request = None
+        if self.current_tool_context:
+            original_request = self.current_tool_context.get("original_request")
+        
         self.current_tool_context = None
-        return self.execute_tool(tool_name, all_params)
+        
+        # YENI: Original request ile birlikte execute et
+        return self.execute_tool(tool_name, all_params, original_request)
     
     def _call_llm_for_tool_selection(self, prompt: str, use_history: bool = True) -> Dict[str, Any]:
-        """LLM'den araç seçimi iste"""
+        """LLM'den araç seçimi iste - iyileştirilmiş context ile"""
         try:
             if self.waiting_for_parameters and self.current_tool_context and use_history:
                 context_reminder = (
                     f"BAGLAM: Daha once '{self.current_tool_context['tool_name']}' aracini sectim. "
                     f"Eksik parametreler: {', '.join(self.current_tool_context['missing_params'])}. "
+                    f"ORIJINAL ISTEK: {self.current_tool_context.get('original_request', 'bilinmiyor')}\n"
                     f"Kullanicinin yeni mesaji bu parametreleri saglamaya yonelik olmali.\n\n"
                     f"Kullanici mesaji: {prompt}"
                 )
@@ -139,7 +196,6 @@ class BaseAgent(ABC):
                 raise ValueError("JSON bulunamadı")
             json_str_with_trailing_junk = content[first_brace_index:]
             
-            import json
             decoded_json, _ = json.JSONDecoder().raw_decode(json_str_with_trailing_junk)
             return decoded_json
         except Exception as e:
@@ -148,21 +204,45 @@ class BaseAgent(ABC):
     
     def _create_error_response(self, error_message: str) -> Generator[str, None, None]:
         """Hata yanıtı oluştur"""
+        # YENI: Error'u da context'e ekle
+        if self.last_user_request:
+            self.add_to_conversation_context(self.last_user_request, error_message)
+            
         def stream_response():
             yield error_message
         return stream_response()
     
-    def _summarize_result_for_user(self, result: Any) -> Generator[str, None, None]:
-        """Araç sonucunu kullanıcı için özetle"""
-        import json
+    def _summarize_result_for_user(self, result: Any, original_request: str = None) -> Generator[str, None, None]:
+        """YENI: Araç sonucunu kullanıcı için özetle - orijinal istek ile birlikte"""
+        
+        # Orijinal request bilgisini al
+        if not original_request:
+            original_request = self.last_user_request or "Bilinmeyen istek"
+        
         summary_prompt = (
+            f"ORIJINAL KULLANICI ISTEGI: {original_request}\n\n"
             f"Bir {self.category} araci calistirildi ve sonuc olarak asagidaki JSON verisi alindi. "
-            f"Bu sonucu kullanici icin kolay anlasilir, dogal bir dilde (Turkce) ozetle. "
-            f"Eger bir hata varsa hatayi belirt. Teknik terimleri basitce acikla.\n\n"
-            f"JSON Verisi:\n{json.dumps(result, indent=2, ensure_ascii=False)}\n"
+            f"Bu sonucu kullanicinin ORIJINAL ISTEGINE uygun olarak, kolay anlasilir, dogal bir dilde (Turkce) ozetle. "
+            f"Kullanicinin sorusunu ve baglamini UNUTMA! Eger bir hata varsa hatayi belirt. "
+            f"Teknik terimleri basitce acikla.\n\n"
+            f"JSON Verisi:\n{json.dumps(result, indent=2, ensure_ascii=False)}\n\n"
+            f"ONEMLI: Yanıtını kullanicinin orijinal sorusu olan '{original_request}' ile iliskilendir."
         )
-        logger.info(f"[{self.category}] Araç sonucu için LLM'den özet isteniyor.")
-        return self.client.chat_stream(
+        
+        logger.info(f"[{self.category}] Araç sonucu için LLM'den özet isteniyor (orijinal istek: {original_request[:50]}...)")
+        
+        # YENI: use_history=True yaparak conversation context'i koru
+        response_generator = self.client.chat_stream(
             user_prompt=summary_prompt,
-            use_history=False
+            use_history=True  # DEĞIŞTI: False yerine True
         )
+        
+        # Response'u collect et ve context'e ekle
+        full_response = ""
+        for chunk in response_generator:
+            full_response += chunk
+            yield chunk
+            
+        # YENI: Tool response'u context'e ekle
+        if original_request:
+            self.add_to_conversation_context(original_request, full_response)

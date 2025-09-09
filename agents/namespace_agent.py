@@ -5,7 +5,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 class NamespaceAgent(BaseAgent):
-    """Kubernetes Namespace işlemleri için özelleşmiş agent"""
+    """Kubernetes Namespace işlemleri için özelleşmiş agent - İyileştirilmiş context yönetimi ile"""
     
     def __init__(self, client):
         super().__init__(
@@ -55,9 +55,13 @@ class NamespaceAgent(BaseAgent):
             }
         }
     
-    def execute_tool(self, tool_name: str, parameters: Dict[str, Any]) -> Generator[str, None, None]:
-        """Namespace aracını çalıştırır"""
+    def execute_tool(self, tool_name: str, parameters: Dict[str, Any], original_request: str = None) -> Generator[str, None, None]:
+        """Namespace aracını çalıştırır - iyileştirilmiş context ile"""
         logger.info(f"[{self.category}] Araç çalıştırılıyor: '{tool_name}', Parametreler: {parameters}")
+        
+        # Original request'i güncelle
+        if original_request:
+            self.last_user_request = original_request
         
         # Şimdilik simüle edilmiş yanıtlar - gerçek API çağrıları gelecekte eklenecek
         if tool_name == "list_namespaces":
@@ -85,4 +89,15 @@ class NamespaceAgent(BaseAgent):
         else:
             result = {"status": "error", "message": f"Bilinmeyen araç: {tool_name}"}
         
-        return self._summarize_result_for_user(result)
+        # YENI: Tool result'u context ile birlikte summarize et
+        response_generator = self._summarize_result_for_user(result, self.last_user_request)
+        
+        # Response'u collect et ve context'e ekle
+        full_response = ""
+        for chunk in response_generator:
+            full_response += chunk
+            yield chunk
+        
+        # YENI: Tool execution'ı conversation context'e ekle
+        if self.last_user_request:
+            self.add_to_conversation_context(self.last_user_request, full_response)

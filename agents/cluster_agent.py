@@ -7,7 +7,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 class ClusterAgent(BaseAgent):
-    """Kubernetes Cluster işlemleri için özelleşmiş agent"""
+    """Kubernetes Cluster işlemleri için özelleşmiş agent - İyileştirilmiş context yönetimi ile"""
     
     def __init__(self, client):
         super().__init__(
@@ -22,18 +22,42 @@ class ClusterAgent(BaseAgent):
         """Cluster işlemleri için mevcut araçları döndürür"""
         return self.tool_manager.tools
     
-    def execute_tool(self, tool_name: str, parameters: Dict[str, Any]) -> Generator[str, None, None]:
-        """Cluster aracını çalıştırır"""
+    def execute_tool(self, tool_name: str, parameters: Dict[str, Any], original_request: str = None) -> Generator[str, None, None]:
+        """Cluster aracını çalıştırır - iyileştirilmiş context ile"""
         logger.info(f"[{self.category}] Araç çalıştırılıyor: '{tool_name}', Parametreler: {parameters}")
+        
+        # Original request'i güncelle
+        if original_request:
+            self.last_user_request = original_request
         
         tool_function = getattr(self.cluster_api, tool_name, None)
         if not tool_function:
             logger.error(f"[{self.category}] '{tool_name}' aracı için fonksiyon bulunamadı.")
-            return self._create_error_response(f"'{tool_name}' adlı aracın çalıştırma metodu bulunamadı.")
+            error_msg = f"'{tool_name}' adlı aracın çalıştırma metodu bulunamadı."
+            return self._create_error_response(error_msg)
         
         try:
             result = tool_function(**parameters)
-            return self._summarize_result_for_user(result)
+            
+            # YENI: Tool result'u context ile birlikte summarize et
+            response_generator = self._summarize_result_for_user(result, self.last_user_request)
+            
+            # Response'u collect et ve context'e ekle
+            full_response = ""
+            for chunk in response_generator:
+                full_response += chunk
+                yield chunk
+            
+            # YENI: Tool execution'ı conversation context'e ekle
+            if self.last_user_request:
+                self.add_to_conversation_context(self.last_user_request, full_response)
+                
         except Exception as e:
             logger.error(f"[{self.category}] Araç çalıştırılırken hata oluştu ({tool_name}): {e}")
-            return self._create_error_response(f"Araç çalıştırılırken hata oluştu: {str(e)}")
+            error_msg = f"Araç çalıştırılırken hata oluştu: {str(e)}"
+            
+            # YENI: Error'u da context'e ekle
+            if self.last_user_request:
+                self.add_to_conversation_context(self.last_user_request, error_msg)
+                
+            return self._create_error_response(error_msg)
