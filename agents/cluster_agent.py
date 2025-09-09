@@ -1,4 +1,4 @@
-from typing import Dict, Any, Generator
+from typing import Dict, Any, Generator, Optional
 from base_agent import BaseAgent
 from tools.cluster_tools.tool_manager import ToolManager
 from tools.cluster_tools.cluster_tools import ClusterAPITools
@@ -9,11 +9,12 @@ logger = logging.getLogger(__name__)
 class ClusterAgent(BaseAgent):
     """Kubernetes Cluster işlemleri için özelleşmiş agent - İyileştirilmiş context yönetimi ile"""
     
-    def __init__(self, client):
+    def __init__(self, client, manager: Optional[Any] = None):
         super().__init__(
             client=client,
             category="Kubernetes Cluster",
-            description="Kubernetes cluster'larını yönetir, listeler, oluşturur ve günceller."
+            description="Kubernetes cluster'larını yönetir, listeler, oluşturur ve günceller.",
+            manager=manager # Manager'ı BaseAgent'a aktar
         )
         self.tool_manager = ToolManager()
         self.cluster_api = ClusterAPITools(base_url="http://10.67.67.195:8000")

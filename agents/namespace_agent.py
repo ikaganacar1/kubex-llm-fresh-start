@@ -1,4 +1,4 @@
-from typing import Dict, Any, Generator
+from typing import Dict, Any, Generator, Optional
 from base_agent import BaseAgent
 from tools.namespace_tools.namespace_tools import NamespaceAPITools
 from tools.namespace_tools.tool_manager import NamespaceToolManager
@@ -9,11 +9,12 @@ logger = logging.getLogger(__name__)
 class NamespaceAgent(BaseAgent):
     """Kubernetes Namespace işlemleri için özelleşmiş agent - İyileştirilmiş context yönetimi ile"""
     
-    def __init__(self, client):
+    def __init__(self, client, manager: Optional[Any] = None):
         super().__init__(
             client=client,
             category="Kubernetes Namespace",
-            description="Kubernetes namespace'lerini yönetir, listeler ve detaylarını gösterir."
+            description="Kubernetes namespace'lerini yönetir, listeler ve detaylarını gösterir.",
+            manager=manager 
         )
         self.tool_manager = NamespaceToolManager()
         # Client'tan base_url'i al veya default kullan

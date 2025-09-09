@@ -1,4 +1,4 @@
-from typing import Dict, Any, Generator
+from typing import Dict, Any, Generator, Optional
 from base_agent import BaseAgent
 from tools.repository_tools.repository_tools import RepositoryAPITools
 from tools.repository_tools.tool_manager import RepositoryToolManager
@@ -9,11 +9,12 @@ logger = logging.getLogger(__name__)
 class RepositoryAgent(BaseAgent):
     """Kubernetes Helm Repository işlemleri için özelleşmiş agent - İyileştirilmiş context yönetimi ile"""
     
-    def __init__(self, client):
+    def __init__(self, client, manager: Optional[Any] = None):
         super().__init__(
             client=client,
             category="Helm Repository",
-            description="Helm repository'lerini yönetir, chart'ları listeler ve yükler."
+            description="Helm repository'lerini yönetir, chart'ları listeler ve yükler.",
+            manager=manager 
         )
         self.tool_manager = RepositoryToolManager()
         # Client'tan base_url'i al veya default kullan

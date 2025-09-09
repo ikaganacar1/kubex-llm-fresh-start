@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List, Generator, Union
+from typing import Dict, Any, List, Generator, Union, Optional 
 import logging
 import json
 
@@ -8,15 +8,15 @@ logger = logging.getLogger(__name__)
 class BaseAgent(ABC):
     """Tüm ajanlar için temel sınıf - İyileştirilmiş memory ve context yönetimi ile"""
     
-    def __init__(self, client, category: str, description: str):
+    def __init__(self, client, category: str, description: str, manager: Optional[Any] = None):
         self.client = client
         self.category = category
         self.description = description
+        self.manager = manager  # AgentManager referansını sakla
         self.waiting_for_parameters = False
         self.current_tool_context = None
-        # YENI: Son kullanıcı isteğini sakla
         self.last_user_request = None
-        self.conversation_context = []  # YENI: Conversation summary için
+        self.conversation_context = []
     
     @abstractmethod
     def get_tools(self) -> Dict[str, Any]:
@@ -101,22 +101,19 @@ class BaseAgent(ABC):
         return "\n".join(summary_parts)
     
     def process_request(self, prompt: str) -> Union[Dict[str, Any], Generator[str, None, None]]:
-        """İsteği işle - iyileştirilmiş memory management ile"""
+        """İsteği işle - iyileştirilmiş memory management ve otomatik enjeksiyon ile"""
         logger.info(f"[{self.category}] İstek işleniyor: {prompt}")
         
-        # YENI: Son kullanıcı isteğini sakla
         self.last_user_request = prompt
         
         llm_decision = self._call_llm_for_tool_selection(prompt, use_history=True)
         tool_name = llm_decision.get("tool_name")
         parameters = llm_decision.get("parameters", {})
-
+        
         if not tool_name or tool_name == "chat":
             response_text = parameters.get("response", f"{self.category} ile ilgili size nasil yardimci olabilirim?")
             self.waiting_for_parameters = False
             self.current_tool_context = None
-            
-            # YENI: Chat response'u context'e ekle
             self.add_to_conversation_context(prompt, response_text)
             
             def stream_response():
@@ -132,6 +129,25 @@ class BaseAgent(ABC):
             self.current_tool_context = None
             return self._create_error_response(f"'{tool_name}' adinda bir arac bulunamadi.")
 
+        # --- YENİ EKLENTİ: Otomatik Cluster ID Enjeksiyonu ---
+        # 1. Agent'ın manager'a erişimi var mı diye kontrol et (constructor'da enjekte edilmeli)
+        if hasattr(self, 'manager') and self.manager:
+            # 2. Seçilen aracın 'cluster_id' parametresine ihtiyacı var mı?
+            tool_requires_cluster_id = False
+            for param_def in tool_info.get("parameters", []):
+                if param_def.get("name") == "cluster_id":
+                    tool_requires_cluster_id = True
+                    break
+            
+            # 3. Eğer LLM cluster_id'yi sağlamadıysa ve araç buna ihtiyaç duyuyorsa, global state'den enjekte et.
+            if tool_requires_cluster_id and "cluster_id" not in parameters:
+                contextual_params = self.manager.get_contextual_parameters()
+                if contextual_params.get("cluster_id"):
+                    parameters["cluster_id"] = contextual_params["cluster_id"]
+                    logger.info(f"[{self.category}] Otomatik enjeksiyon: cluster_id={contextual_params['cluster_id']} araca eklendi.")
+        # --- ENJEKSİYON BİTİŞİ ---
+
+        # Eksik parametre kontrolü (enjeksiyon sonrasında yapılır)
         missing_params = []
         for required_param in tool_info.get("parameters", []):
             if required_param.get("required") and required_param.get("name") not in parameters:
@@ -145,7 +161,7 @@ class BaseAgent(ABC):
                 "tool_name": tool_name,
                 "missing_params": missing_params,
                 "extracted_params": parameters,
-                "original_request": prompt  # YENI: Orijinal isteği sakla
+                "original_request": prompt
             }
             
             return {
@@ -158,22 +174,26 @@ class BaseAgent(ABC):
 
         self.waiting_for_parameters = False
         self.current_tool_context = None
-        return self.execute_tool(tool_name, parameters)
+        return self.execute_tool(tool_name, parameters, original_request=prompt)
 
     def finalize_request(self, tool_name: str, extracted_params: dict, collected_params: dict) -> Generator[str, None, None]:
         """Parametre toplama tamamlandıktan sonra aracı çalıştır - iyileştirilmiş context ile"""
         all_params = {**extracted_params, **collected_params}
         self.waiting_for_parameters = False
-        
-        # YENI: Original request'i context'ten al
-        original_request = None
+
+        # --- DEBUG LOGGING BAŞLANGICI ---
+        original_request = "Original request context not found"
         if self.current_tool_context:
-            original_request = self.current_tool_context.get("original_request")
+            original_request = self.current_tool_context.get("original_request", "Original request key missing")
         
+        logger.info(f"[{self.category}] Finalizing tool execution.")
+        logger.info(f"[{self.category}] Tool Name: {tool_name}")
+        logger.info(f"[{self.category}] All Parameters for execution: {all_params}")
+        logger.info(f"[{self.category}] Original Request context: {original_request}")
+        # --- DEBUG LOGGING BİTİŞİ ---
+            
         self.current_tool_context = None
-        
-        # YENI: Original request ile birlikte execute et
-        return self.execute_tool(tool_name, all_params, original_request)
+        return self.execute_tool(tool_name, all_params, original_request=original_request)
     
     def _call_llm_for_tool_selection(self, prompt: str, use_history: bool = True) -> Dict[str, Any]:
         """LLM'den araç seçimi iste - iyileştirilmiş context ile"""

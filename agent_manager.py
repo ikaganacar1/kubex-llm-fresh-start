@@ -5,6 +5,8 @@ from ollama import OllamaClient
 from agents.cluster_agent import ClusterAgent
 from agents.namespace_agent import NamespaceAgent
 from agents.deployment_agent import DeploymentAgent
+from agents.repository_agent import RepositoryAgent
+
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +18,9 @@ class AgentManager:
         
         self.global_conversation_context = []
         self.session_active = True
-        
+        self.active_cluster_id: Optional[str] = None
+        self.active_cluster_name: Optional[str] = None # Kullanıcıya göstermek için isim
+
         self.agents = self._initialize_agents()
         self.current_agent = None
         self.waiting_for_parameters = False
@@ -25,11 +29,11 @@ class AgentManager:
     def _initialize_agents(self) -> Dict[str, Any]:
         """Mevcut agent'ları başlat"""
         return {
-            "cluster": ClusterAgent(self.client),
-            "namespace": NamespaceAgent(self.client),
-            "deployment": DeploymentAgent(self.client),
-            # "service": ServiceAgent(self.client),
-            # "pod": PodAgent(self.client),
+            "cluster": ClusterAgent(self.client, manager=self),
+            "namespace": NamespaceAgent(self.client, manager=self),
+            "deployment": DeploymentAgent(self.client, manager=self),
+            "repository": RepositoryAgent(self.client, manager=self)
+
         }
     
     def _build_router_system_prompt(self) -> str:
@@ -265,3 +269,52 @@ class AgentManager:
         summary += self._get_global_context_summary()
         
         return summary
+    
+    def set_active_cluster(self, cluster_id: str, cluster_name: Optional[str] = None):
+        """Aktif cluster ID'yi merkezi olarak ayarlar."""
+        self.active_cluster_id = cluster_id
+        self.active_cluster_name = cluster_name
+        logger.info(f"[AgentManager] Aktif cluster UI tarafından ayarlandı: ID={cluster_id}, Adı={cluster_name}")
+
+    def get_cluster_list_for_ui(self) -> List[Dict[str, Any]]:
+        """LLM olmadan doğrudan cluster listesini çeker."""
+        try:
+            cluster_agent: ClusterAgent = self.agents.get("cluster")
+            if not cluster_agent:
+                logger.error("Cluster agent bulunamadı.")
+                return []
+
+            api_response = cluster_agent.cluster_api.list_clusters()
+
+            if isinstance(api_response, dict):
+                if "records" in api_response and isinstance(api_response.get("records"), list):
+                    return api_response["records"]
+                
+                elif "data" in api_response and isinstance(api_response.get("data"), list):
+                    logger.warning("API formatı 'data' anahtarını kullanıyor. Beklenen 'records' idi.")
+                    return api_response["data"]
+                
+                elif "items" in api_response and isinstance(api_response.get("items"), list):
+                    logger.warning("API formatı 'items' anahtarını kullanıyor. Beklenen 'records' idi.")
+                    return api_response["items"]
+                
+                else:
+                    logger.error(f"API yanıtı sözlük formatında ancak beklenen liste anahtarı ('records', 'data', 'items') bulunamadı. Anahtarlar: {api_response.keys()}")
+                    return []
+
+            elif isinstance(api_response, list):
+                return api_response
+
+        except Exception as e:
+            logger.error(f"UI için cluster listesi çekilemedi: {e}")
+            return []
+        
+        return []
+
+    # --- YENİ METOD: Otomatik Enjeksiyon İçin ---
+    def get_contextual_parameters(self) -> Dict[str, Any]:
+        """Diğer agent'ların kullanması için bağlamsal parametreleri döndürür."""
+        params = {}
+        if self.active_cluster_id:
+            params["cluster_id"] = self.active_cluster_id
+        return params

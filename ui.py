@@ -1,6 +1,7 @@
 import streamlit as st
 import logging
 import re
+from typing import Dict, Any # Ekleme: Tip denetimi için
 
 from ollama import OllamaClient
 from agent_manager import AgentManager
@@ -16,14 +17,18 @@ st.set_page_config(
     layout="wide"
 )
 
+# --- Session State Başlatma ---
 if "agent_manager" not in st.session_state:
     st.session_state.agent_manager = None
     st.session_state.connected = False
     st.session_state.messages = []
     st.session_state.pending_action = None
-    st.session_state.show_debug = False  # YENI: Debug panel toggle
+    st.session_state.show_debug = False
+    st.session_state.cluster_list = [] # Cluster listesini saklamak için
+    st.session_state.cluster_list_data = [] # İşlenmiş veriyi saklamak için yeni state
 
 def parse_and_display_response(full_response: str):
+    """LLM yanıtını ayrıştırır ve 'think' etiketlerini expander içine alır."""
     thinking_pattern = re.compile(r"<think>(.*?)</think>", re.DOTALL)
     thinking_content = ""
     main_content = full_response
@@ -62,91 +67,133 @@ with st.sidebar:
 
     if st.session_state.connected and st.session_state.agent_manager:
         st.divider()
-        
-        # YENI: Debug panel toggle
+
+        # 1. Cluster listesini sadece bir kez çek
+        if not st.session_state.cluster_list_data:
+            with st.spinner("Cluster listesi alınıyor..."):
+                try:
+                    clusters_raw = st.session_state.agent_manager.get_cluster_list_for_ui()
+                    
+                    processed_list = []
+                    if isinstance(clusters_raw, dict):
+                        # API yanıtı bir sözlük ise, 'records' anahtarını kontrol et
+                        if "records" in clusters_raw and isinstance(clusters_raw.get("records"), list):
+                            processed_list = clusters_raw["records"]
+                        else:
+                            logger.warning(f"API yanıtı sözlük formatında ancak 'records' anahtarında liste bulunamadı. Anahtarlar: {clusters_raw.keys()}")
+                    elif isinstance(clusters_raw, list):
+                        processed_list = clusters_raw # Doğrudan liste gelme ihtimaline karşı fallback
+                    
+                    st.session_state.cluster_list_data = processed_list
+
+                except Exception as e:
+                    logger.error(f"Cluster listesi alınırken veya işlenirken hata oluştu: {e}")
+                    st.session_state.cluster_list_data = []
+
+        # 2. Cluster seçme arayüzünü göster
+        if st.session_state.cluster_list_data:
+            try:
+                # API'nizin döndürdüğü gerçek "id" ve "name" alan adlarını kullanın.
+                # JSON çıktınıza göre anahtarlar doğru görünüyor ('name' ve 'id').
+                cluster_options = {cluster['name']: cluster['id'] for cluster in st.session_state.cluster_list_data}
+                
+                active_cluster_name = getattr(st.session_state.agent_manager, 'active_cluster_name', None)
+                if not active_cluster_name and cluster_options:
+                     active_cluster_name = list(cluster_options.keys())[0]
+
+                current_index = list(cluster_options.keys()).index(active_cluster_name) if active_cluster_name in cluster_options else 0
+
+                selected_cluster_name = st.selectbox(
+                    "Aktif Cluster Seçin",
+                    options=list(cluster_options.keys()), # Seçeneklerin liste olduğundan emin olalım
+                    index=current_index,
+                    key="cluster_selector"
+                )
+                
+                selected_id = cluster_options[selected_cluster_name]
+                if st.session_state.agent_manager.active_cluster_id != selected_id:
+                    st.session_state.agent_manager.set_active_cluster(selected_id, selected_cluster_name)
+                    st.rerun()
+
+            except KeyError as e:
+                st.error(f"Cluster verisi ayrıştırılırken hata: '{e}' anahtarı bulunamadı.")
+                logger.error(f"KeyError: API verisindeki anahtarlar UI koduyla eşleşmiyor. Veri: {st.session_state.cluster_list_data}")
+            except Exception as e:
+                st.error(f"Cluster dropdown oluşturulurken beklenmedik hata: {e}")
+        elif st.session_state.connected:
+             st.warning("API'den cluster listesi alınamadı veya liste boş.")
+
+        # --- Debug ve Agent Bilgileri ---
+        st.divider()
         st.session_state.show_debug = st.checkbox("🔍 Debug Panel", value=st.session_state.show_debug)
-        
-        # Mevcut durumu göster - YENI: Geliştirilmiş status display
         status = st.session_state.agent_manager.get_current_status()
-        if status["active_agent"]:
-            st.success(f"🤖 **Aktif Agent:** {status['active_agent']}")
-            
-            if status["waiting_for_parameters"]:
-                st.warning("⏳ Parametre bekleniyor...")
-                if status["tool_context"]:
-                    tool_name = status["tool_context"]["tool_name"]
-                    missing = status["tool_context"]["missing_params"]
-                    st.caption(f"Araç: `{tool_name}`")
-                    st.caption(f"Eksik: {', '.join(missing)}")
-            
-            # YENI: Context information
-            if st.session_state.show_debug:
-                st.caption(f"🧠 Global Context: {status['global_context_size']} etkileşim")
-                st.caption(f"🔧 Tool Etkileşimleri: {status['last_interactions']}")
-        else:
-            st.info("🎯 **Router Modu:** İstek kategorisi bekleniyor")
-        
-        # YENI: Debug panel
+
+        if status["waiting_for_parameters"]:
+            st.warning("⏳ Parametre bekleniyor...")
+            if status["tool_context"]:
+                tool_name = status["tool_context"]["tool_name"]
+                missing = status["tool_context"]["missing_params"]
+                st.caption(f"Araç: `{tool_name}` | Eksik: {', '.join(missing)}")
+
         if st.session_state.show_debug:
             with st.expander("🔍 Memory Debug Panel", expanded=False):
                 if hasattr(st.session_state.agent_manager, 'get_conversation_summary'):
                     summary = st.session_state.agent_manager.get_conversation_summary()
                     st.text_area("Conversation Memory", summary, height=200)
                 
-                # Current agent memory
+                # Current agent memory detail
                 if st.session_state.agent_manager.current_agent:
                     agent = st.session_state.agent_manager.current_agent
                     if hasattr(agent, 'conversation_context') and agent.conversation_context:
                         st.subheader(f"{agent.category} Local Context")
                         for i, ctx in enumerate(agent.conversation_context[-3:]):
-                            st.caption(f"**Etkileşim {i+1}:**")
-                            st.caption(f"👤 User: {ctx['user'][:100]}...")
-                            st.caption(f"🤖 Agent: {ctx['assistant'][:100]}...")
-        
+                            st.caption(f"**Etkileşim {i+1}:** User: {ctx['user'][:50]}...")
+
         # Mevcut kategoriler
         categories = st.session_state.agent_manager.get_available_categories()
-        st.subheader("📂 Mevcut Kategoriler")
+        st.subheader("📂 Mevcut Agent Kategorileri")
         for category in categories:
             agent = st.session_state.agent_manager.agents[category]
-            st.caption(f"• **{agent.category}**")
-            st.caption(f"  {agent.description}", unsafe_allow_html=True)
+            st.caption(f"• **{agent.category}**: {agent.description}")
         
         st.divider()
-        
-        # YENI: Reset seçenekleri
         col1, col2 = st.columns(2)
-        
         with col1:
             if st.button("🔄 Soft Reset"):
                 if st.session_state.agent_manager:
                     st.session_state.agent_manager.soft_reset_contexts()
-                st.success("İşlem durumu sıfırlandı, memory korundu!")
+                st.success("İşlem durumu sıfırlandı!")
                 st.rerun()
-        
         with col2:
             if st.button("🗑️ Full Reset"):
                 st.session_state.messages = []
                 st.session_state.pending_action = None
                 if st.session_state.agent_manager:
                     st.session_state.agent_manager.reset_all_contexts()
+                # Cluster listesini de sıfırla ki tekrar çekilsin
+                st.session_state.cluster_list = [] 
                 st.success("Tüm bağlamlar temizlendi!")
                 st.rerun()
 
 # --- Ana Sohbet Arayüzü ---
 st.title("🧩 KUBEX Multi-Agent Asistanı")
 
-# YENI: Memory durumu göstergesi
+# Durum Bilgisi (Birleştirilmiş)
 if st.session_state.connected and st.session_state.agent_manager:
-    status = st.session_state.agent_manager.get_current_status()
-    if status["global_context_size"] > 0:
-        st.info(f"💾 **Memory:** {status['global_context_size']} etkileşim | "
-                f"🤖 **Aktif Agent:** {status['active_agent'] or 'Router'}")
+    active_cluster_name = getattr(st.session_state.agent_manager, 'active_cluster_name', None)
+    if active_cluster_name:
+        status = st.session_state.agent_manager.get_current_status()
+        memory_size = status['global_context_size']
+        st.info(f"Seçili Cluster: **{active_cluster_name}** | Memory: {memory_size} etkileşim")
+    else:
+        st.warning("Lütfen kenar çubuğundan bir cluster seçerek başlayın.")
 
 # Geçmiş sohbet mesajlarını ekrana yazdır
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         parse_and_display_response(message["content"])
 
+# --- Sohbet Girişi ve Form Yönetimi ---
 if st.session_state.connected:
     # DURUM 1: Eksik parametreleri toplama formu
     if st.session_state.pending_action:
@@ -154,18 +201,11 @@ if st.session_state.connected:
         with st.form("parameter_form"):
             st.warning("İşlemi tamamlamak için ek bilgilere ihtiyacım var:")
             
-            # Aktif agent bilgisi
             status = st.session_state.agent_manager.get_current_status()
             if status["active_agent"]:
-                st.info(f"**Aktif Agent:** {status['active_agent']}")
-                st.info(f"**Araç:** {pending['tool_name']}")
+                st.info(f"**Aktif Agent:** {status['active_agent']} | **Araç:** {pending['tool_name']}")
             
-            # YENI: Original request bilgisini göster
-            if "original_request" in pending.get("extracted_params", {}):
-                original = pending["extracted_params"]["original_request"]
-                st.caption(f"📝 **Orijinal İstek:** {original[:100]}...")
-            
-            collected_params = {}
+            collected_params: Dict[str, Any] = {}
             for i, param in enumerate(pending["missing_params"]):
                 question = pending["questions"][i] if i < len(pending["questions"]) else f"{param} nedir?"
                 collected_params[param] = st.text_input(question, key=f"param_{param}_{i}")
@@ -177,41 +217,39 @@ if st.session_state.connected:
                 cancelled = st.form_submit_button("İptal Et")
             
             if cancelled:
-                # İşlemi iptal et ve soft reset yap
                 st.session_state.pending_action = None
                 if st.session_state.agent_manager:
-                    st.session_state.agent_manager.soft_reset_contexts()  # YENI: Soft reset
+                    st.session_state.agent_manager.soft_reset_contexts()
                 st.rerun()
                 
             if submitted:
-                # Form gönderildikten sonra asistan mesaj baloncuğu oluştur
                 with st.chat_message("assistant"):
                     response_generator = st.session_state.agent_manager.finalize_request(
                         pending["tool_name"],
-                        pending["extracted_params"],
+                        pending.get("extracted_params", {}),
                         collected_params
                     )
                     full_response_content = st.write_stream(response_generator)
 
-                # Tamamlanan yanıtı sohbet geçmişine ekle
                 st.session_state.messages.append({"role": "assistant", "content": full_response_content})
                 st.session_state.pending_action = None
                 st.rerun()
 
     # DURUM 2: Normal sohbet girişi
-    if prompt := st.chat_input("Kubernetes ile ilgili bir soru sorun... (örn: cluster listesi, namespace oluştur, deployment durumu)"):
-        # Kullanıcı mesajını geçmişe ve ekrana ekle
+    # Sadece cluster seçiliyse chat input'u aktif et
+    chat_disabled = not getattr(st.session_state.agent_manager, 'active_cluster_id', None)
+    chat_placeholder = "Cluster seçin..." if chat_disabled else "Kubernetes ile ilgili bir soru sorun..."
+
+    if prompt := st.chat_input(chat_placeholder, disabled=chat_disabled):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
 
         with st.chat_message("assistant"):
-            # Router üzerinden işlemi başlat
             response = st.session_state.agent_manager.route_request(prompt)
 
             if isinstance(response, dict) and response.get("status") == "needs_parameters":
                 st.session_state.pending_action = response
-                st.info("Eksik parametreler tespit edildi. Form hazırlanıyor...")
                 st.rerun() 
             else:
                 response_placeholder = st.empty()
@@ -221,80 +259,7 @@ if st.session_state.connected:
                     with response_placeholder.container():
                         parse_and_display_response(full_response_content)
 
-                # Tamamlanan yanıtı sohbet geçmişine ekle
                 st.session_state.messages.append({"role": "assistant", "content": full_response_content})
-
-    # Yardımcı örnekler - YENI: Context-aware examples
-    st.divider()
-    
-    with st.expander("💡 Örnek Komutlar & Test Senaryoları"):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("🏗️ Cluster İşlemleri")
-            st.code("cluster listesi göster")
-            st.code("yeni cluster oluştur")
-            st.code("cluster detaylarını göster")
-            st.code("cluster özet bilgisi ver")
-            
-            st.subheader("🧠 Memory Test")
-            st.code("Bu liste kaç cluster gösteriyor?")
-            st.code("Hangisi en yenisi?")
-            st.code("Önceki sonuçta hangi cluster'lar vardı?")
-            
-        with col2:
-            st.subheader("📦 Namespace İşlemleri")
-            st.code("namespace listesini göster")
-            st.code("production namespace'i oluştur")
-            st.code("test namespace'ini sil")
-            st.code("namespace durumları nedir")
-            
-            st.subheader("🔄 Context Takip")
-            st.code("Bu namespacelar hangi cluster'da?")
-            st.code("Bunları nasıl yönetebilirim?")
-            st.code("Daha detay bilgi ver")
 
 else:
     st.info("👈 Lütfen önce kenar çubuğundan Ollama sunucusuna bağlanın.")
-    
-    # Bağlantı yokken sistem açıklaması göster
-    st.divider()
-    st.subheader("🤖 Multi-Agent Mimarisi")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("""
-        **🎯 Router Agent**
-        - Kullanıcı isteklerini analiz eder
-        - Uygun kategoriye yönlendirir
-        - Genel sohbet soularını yanıtlar
-        - **🆕 Global context yönetimi**
-        """)
-        
-        st.markdown("""
-        **🏗️ Cluster Agent**
-        - Kubernetes cluster yönetimi
-        - Cluster oluşturma/listeleme
-        - Cluster güncelleme işlemleri
-        - **🆕 Context-aware responses**
-        """)
-        
-    with col2:
-        st.markdown("""
-        **📦 Namespace Agent**
-        - Namespace yönetimi
-        - Namespace oluşturma/silme
-        - Namespace durum kontrolü
-        - **🆕 Memory integration**
-        """)
-        
-        st.markdown("""
-        **🧠 İyileştirmeler**
-        - ✅ Orijinal soru hatırlanır
-        - ✅ Tool sonuçları context-aware
-        - ✅ Agent'lar arası memory paylaşımı
-        - ✅ Önceki yanıtlar referans edilir
-        """)
-    
-    st.info("Her agent kendi özel alanında uzmanlaşmış ve **conversation memory** ile donatılmıştır!")
