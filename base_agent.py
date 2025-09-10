@@ -54,7 +54,6 @@ class BaseAgent(ABC):
         if self.conversation_context:
             context_info = f"\n\n### SON SOHBET OZETI ###\n{self._get_conversation_summary()}\n"
 
-        # --- YENİ VE DAHA NET PROMPT ---
         return (
             f"### KİMLİK VE UZMANLIK ALANI ###\n"
             f"Sen, KUBEX platformunda **{self.category}** konusunda uzmanlaşmış bir asistansın. "
@@ -95,8 +94,6 @@ class BaseAgent(ABC):
         """Bağlamı sıfırla"""
         self.waiting_for_parameters = False
         self.current_tool_context = None
-        # YENI: Tam reset yapmak yerine conversation_context'i koru
-        # self.conversation_context = []  # Bunu kaldırdık
         self.last_user_request = None
     
     def add_to_conversation_context(self, user_message: str, assistant_response: str):
@@ -144,6 +141,8 @@ class BaseAgent(ABC):
         tool_name = llm_decision.get("tool_name")
         parameters = llm_decision.get("parameters", {})
         
+        print(f"[{self.category}] LLM Decision - Tool: {tool_name}, Parameters: {parameters}")
+        
         if not tool_name or tool_name == "chat":
             response_text = parameters.get("response", f"{self.category} ile ilgili size nasil yardimci olabilirim?")
             self.waiting_for_parameters = False
@@ -163,12 +162,8 @@ class BaseAgent(ABC):
             self.current_tool_context = None
             return self._create_error_response(f"'{tool_name}' adinda bir arac bulunamadi.")
 
-
-        # Eksik parametre kontrolü (enjeksiyon sonrasında yapılır)
-        missing_params = []
-        for required_param in tool_info.get("parameters", []):
-            if required_param.get("required") and required_param.get("name") not in parameters:
-                missing_params.append(required_param.get("name"))
+        # Geliştirilmiş eksik parametre kontrolü
+        missing_params = self._identify_missing_parameters(tool_info, parameters)
 
         if missing_params:
             print(f"[{self.category}] Eksik parametreler tespit edildi: {missing_params}")
@@ -181,11 +176,14 @@ class BaseAgent(ABC):
                 "original_request": prompt
             }
             
+            # Kullanıcı dostu sorular oluştur
+            user_friendly_questions = self._generate_user_friendly_questions(tool_info, missing_params)
+            
             return {
                 "status": "needs_parameters",
                 "tool_name": tool_name,
                 "missing_params": missing_params,
-                "questions": [f"Lutfen '{p}' degeri icin bilgi verin:" for p in missing_params],
+                "questions": user_friendly_questions,
                 "extracted_params": parameters
             }
 
@@ -193,12 +191,73 @@ class BaseAgent(ABC):
         self.current_tool_context = None
         return self.execute_tool(tool_name, parameters, original_request=prompt)
 
+    def _identify_missing_parameters(self, tool_info: Dict[str, Any], provided_params: Dict[str, Any]) -> List[str]:
+        """Eksik parametreleri tespit eder - geliştirilmiş versiyon"""
+        missing_params = []
+        
+        for param_def in tool_info.get("parameters", []):
+            param_name = param_def.get("name")
+            is_required = param_def.get("required", False)
+            
+            # cluster_id'yi atla - otomatik olarak enjekte edilir
+            if param_name == "cluster_id":
+                continue
+                
+            # Parametre ismi yoksa atla
+            if not param_name:
+                continue
+                
+            # Gerekli parametre ve sağlanmamışsa missing listesine ekle
+            if is_required and param_name not in provided_params:
+                missing_params.append(param_name)
+            
+            # Sağlanmış ama boş string ise de missing say
+            elif param_name in provided_params and not str(provided_params[param_name]).strip():
+                missing_params.append(param_name)
+        
+        return missing_params
+    
+    def _generate_user_friendly_questions(self, tool_info: Dict[str, Any], missing_params: List[str]) -> List[str]:
+        """Eksik parametreler için kullanıcı dostu sorular oluşturur"""
+        questions = []
+        
+        # Parametre bilgilerini bir dict'e dönüştür
+        param_info_dict = {p.get("name"): p for p in tool_info.get("parameters", [])}
+        
+        for param_name in missing_params:
+            param_info = param_info_dict.get(param_name, {})
+            description = param_info.get("description", "")
+            
+            # Parametre adına göre özel sorular
+            if param_name == "name" or param_name == "deployment_name":
+                questions.append(f"Lütfen {param_name} bilgisini girin:")
+            elif param_name == "namespace" or param_name == "namespace_name":
+                questions.append("Hangi namespace'de işlem yapmak istiyorsunuz?")
+            elif param_name == "replicas":
+                questions.append("Kaç adet replica istiyorsunuz? (sayı girin)")
+            elif param_name == "image":
+                questions.append("Yeni container image adını girin (örn: harbor.bulut.ai/app:v1.2):")
+            elif param_name == "url":
+                questions.append("Repository URL'sini girin:")
+            elif param_name == "chart":
+                questions.append("Chart adını girin (repo_adı/chart_adı formatında):")
+            elif param_name == "values":
+                questions.append("Values (JSON formatında, opsiyonel):")
+            else:
+                # Generic soru
+                if description:
+                    questions.append(f"{param_name}: {description}")
+                else:
+                    questions.append(f"Lütfen '{param_name}' değeri için bilgi verin:")
+        
+        return questions
+
     def finalize_request(self, tool_name: str, extracted_params: dict, collected_params: dict) -> Generator[str, None, None]:
         """Parametre toplama tamamlandıktan sonra aracı çalıştır - iyileştirilmiş context ile"""
         all_params = {**extracted_params, **collected_params}
         self.waiting_for_parameters = False
 
-        # --- DEBUG LOGGING BAŞLANGICI ---
+        # DEBUG LOGGING
         original_request = "Original request context not found"
         if self.current_tool_context:
             original_request = self.current_tool_context.get("original_request", "Original request key missing")
@@ -207,14 +266,12 @@ class BaseAgent(ABC):
         print(f"[{self.category}] Tool Name: {tool_name}")
         print(f"[{self.category}] All Parameters for execution: {all_params}")
         print(f"[{self.category}] Original Request context: {original_request}")
-        # --- DEBUG LOGGING BİTİŞİ ---
             
         self.current_tool_context = None
         return self.execute_tool(tool_name, all_params, original_request=original_request)
    
     def _create_error_response(self, error_message: str) -> Generator[str, None, None]:
         """Hata yanıtı oluştur"""
-        # YENI: Error'u da context'e ekle
         if self.last_user_request:
             self.add_to_conversation_context(self.last_user_request, error_message)
             

@@ -1,6 +1,6 @@
 import streamlit as st
 import logging
-import re
+import re, json
 from typing import Dict, Any # Ekleme: Tip denetimi için
 
 from ollama import OllamaClient
@@ -196,7 +196,12 @@ if st.session_state.connected:
     # DURUM 1: Eksik parametreleri toplama formu
     if st.session_state.pending_action:
         pending = st.session_state.pending_action
-        with st.form("parameter_form"):
+        
+        # Debug bilgisi göster
+        if st.session_state.show_debug:
+            st.json(pending)
+        
+        with st.form("parameter_form", clear_on_submit=True):
             st.warning("İşlemi tamamlamak için ek bilgilere ihtiyacım var:")
             
             status = st.session_state.agent_manager.get_current_status()
@@ -204,60 +209,145 @@ if st.session_state.connected:
                 st.info(f"**Aktif Agent:** {status['active_agent']} | **Araç:** {pending['tool_name']}")
             
             collected_params: Dict[str, Any] = {}
+            
+            # Her parametre için input alanı oluştur
             for i, param in enumerate(pending["missing_params"]):
-                question = pending["questions"][i] if i < len(pending["questions"]) else f"{param} nedir?"
-                collected_params[param] = st.text_input(question, key=f"param_{param}_{i}")
+                question = pending["questions"][i] if i < len(pending["questions"]) else f"Lütfen '{param}' değeri için bilgi verin:"
+                
+                # Özel input tipleri
+                if param == "replicas":
+                    collected_params[param] = st.number_input(
+                        question, 
+                        min_value=1, 
+                        value=1, 
+                        key=f"param_{param}_{i}"
+                    )
+                elif param == "values":
+                    # JSON input için text area
+                    values_input = st.text_area(
+                        question + " (boş bırakabilirsiniz)", 
+                        placeholder='{"key": "value"}',
+                        key=f"param_{param}_{i}",
+                        height=100
+                    )
+                    if values_input.strip():
+                        try:
+                            collected_params[param] = json.loads(values_input)
+                        except json.JSONDecodeError:
+                            st.error("Geçersiz JSON formatı!")
+                            collected_params[param] = ""
+                    else:
+                        collected_params[param] = None
+                else:
+                    # Normal text input
+                    collected_params[param] = st.text_input(
+                        question, 
+                        key=f"param_{param}_{i}",
+                        placeholder=f"Örn: {param}_degeri"
+                    )
 
+            # Form butonları
             col1, col2 = st.columns([1, 1])
             with col1:
                 submitted = st.form_submit_button("Bilgileri Gönder", type="primary")
             with col2:
                 cancelled = st.form_submit_button("İptal Et")
             
+            # İptal işlemi
             if cancelled:
                 st.session_state.pending_action = None
                 if st.session_state.agent_manager:
                     st.session_state.agent_manager.soft_reset_contexts()
+                st.success("İşlem iptal edildi.")
                 st.rerun()
-                
+            
+            # Form submit işlemi    
             if submitted:
-                with st.chat_message("assistant"):
-                    response_generator = st.session_state.agent_manager.finalize_request(
-                        pending["tool_name"],
-                        pending.get("extracted_params", {}),
-                        collected_params
-                    )
-                    full_response_content = st.write_stream(response_generator)
-
-                st.session_state.messages.append({"role": "assistant", "content": full_response_content})
-                st.session_state.pending_action = None
-                st.rerun()
+                # Boş parametreleri kontrol et
+                empty_required_params = []
+                for param_name, param_value in collected_params.items():
+                    if param_value is None or (isinstance(param_value, str) and not param_value.strip()):
+                        empty_required_params.append(param_name)
+                
+                if empty_required_params:
+                    st.error(f"Şu parametreler boş bırakılamaz: {', '.join(empty_required_params)}")
+                else:
+                    # Parametreleri temizle ve execute et
+                    cleaned_params = {}
+                    for key, value in collected_params.items():
+                        if value is not None and value != "":
+                            cleaned_params[key] = value
+                    
+                    # Assistant mesajını ekle
+                    with st.chat_message("assistant"):
+                        with st.spinner("İşlem gerçekleştiriliyor..."):
+                            try:
+                                response_generator = st.session_state.agent_manager.finalize_request(
+                                    pending["tool_name"],
+                                    pending.get("extracted_params", {}),
+                                    cleaned_params
+                                )
+                                full_response_content = st.write_stream(response_generator)
+                                
+                                # Mesajları kaydet
+                                st.session_state.messages.append({
+                                    "role": "assistant", 
+                                    "content": full_response_content
+                                })
+                                
+                                # Pending action'ı temizle
+                                st.session_state.pending_action = None
+                                st.rerun()
+                                
+                            except Exception as e:
+                                st.error(f"İşlem sırasında hata oluştu: {str(e)}")
+                                st.session_state.pending_action = None
 
     # DURUM 2: Normal sohbet girişi
-    # Sadece cluster seçiliyse chat input'u aktif et
-    chat_disabled = not getattr(st.session_state.agent_manager, 'active_cluster_id', None)
-    chat_placeholder = "Cluster seçin..." if chat_disabled else "Kubernetes ile ilgili bir soru sorun..."
+    else:
+        # Sadece cluster seçiliyse chat input'u aktif et
+        chat_disabled = not getattr(st.session_state.agent_manager, 'active_cluster_id', None)
+        chat_placeholder = "Cluster seçin..." if chat_disabled else "Kubernetes ile ilgili bir soru sorun..."
 
-    if prompt := st.chat_input(chat_placeholder, disabled=chat_disabled):
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
+        if prompt := st.chat_input(chat_placeholder, disabled=chat_disabled):
+            # User mesajını ekle
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.markdown(prompt)
 
-        with st.chat_message("assistant"):
-            response = st.session_state.agent_manager.route_request(prompt)
+            # Assistant yanıtını al
+            with st.chat_message("assistant"):
+                try:
+                    response = st.session_state.agent_manager.route_request(prompt)
 
-            if isinstance(response, dict) and response.get("status") == "needs_parameters":
-                st.session_state.pending_action = response
-                st.rerun() 
-            else:
-                response_placeholder = st.empty()
-                full_response_content = ""
-                for chunk in response:
-                    full_response_content += chunk
-                    with response_placeholder.container():
-                        parse_and_display_response(full_response_content)
+                    if isinstance(response, dict) and response.get("status") == "needs_parameters":
+                        # Parametre gerekiyor - pending action olarak kaydet
+                        st.session_state.pending_action = response
+                        st.info("Ek bilgilere ihtiyacım var. Lütfen aşağıdaki formu doldurun.")
+                        st.rerun() 
+                    else:
+                        # Normal response - stream olarak göster
+                        response_placeholder = st.empty()
+                        full_response_content = ""
+                        
+                        for chunk in response:
+                            full_response_content += chunk
+                            with response_placeholder.container():
+                                parse_and_display_response(full_response_content)
 
-                st.session_state.messages.append({"role": "assistant", "content": full_response_content})
+                        # Mesajı kaydet
+                        st.session_state.messages.append({
+                            "role": "assistant", 
+                            "content": full_response_content
+                        })
+                        
+                except Exception as e:
+                    error_msg = f"Bir hata oluştu: {str(e)}"
+                    st.error(error_msg)
+                    st.session_state.messages.append({
+                        "role": "assistant", 
+                        "content": error_msg
+                    })
 
 else:
     st.info("👈 Lütfen önce kenar çubuğundan Ollama sunucusuna bağlanın.")
