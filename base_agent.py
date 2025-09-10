@@ -2,19 +2,24 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any, List, Generator, Union, Optional 
 import json
 
+from llm_services.tool_calling_llm_service import ToolCallingLLMService
+from llm_services.summarizer_llm_service import SummarizerLLMService
+
 class BaseAgent(ABC):
-    """Tüm ajanlar için temel sınıf - İyileştirilmiş memory ve context yönetimi ile"""
-    
     def __init__(self, client, category: str, description: str, manager: Optional[Any] = None):
         self.client = client
         self.category = category
         self.description = description
-        self.manager = manager  # AgentManager referansını sakla
+        self.manager = manager
+        
+        self.tool_llm_service = ToolCallingLLMService(self.client)
+        self.summary_llm_service = SummarizerLLMService(self.client)
+        
         self.waiting_for_parameters = False
         self.current_tool_context = None
         self.last_user_request = None
         self.conversation_context = []
-    
+
     @abstractmethod
     def get_tools(self) -> Dict[str, Any]:
         """Agent'in kullanabileceği araçları döndürür"""
@@ -119,8 +124,23 @@ class BaseAgent(ABC):
     
     def process_request(self, prompt: str) -> Union[Dict[str, Any], Generator[str, None, None]]:        
         self.last_user_request = prompt
+
+        context_reminder = None
+        if self.waiting_for_parameters and self.current_tool_context:
+            context_reminder = (
+                f"BAGLAM: Daha once '{self.current_tool_context['tool_name']}' aracini sectim. "
+                f"Eksik parametreler: {', '.join(self.current_tool_context['missing_params'])}. "
+                f"ORIJINAL ISTEK: {self.current_tool_context.get('original_request', 'bilinmiyor')}"
+            )
         
-        llm_decision = self._call_llm_for_tool_selection(prompt, use_history=True)
+        llm_decision = self.tool_llm_service.select_tool(
+            user_prompt=prompt,
+            agent_category=self.category,
+            tools=self.get_tools(),
+            conversation_summary=self._get_conversation_summary(),
+            context_reminder=context_reminder
+        )
+        
         tool_name = llm_decision.get("tool_name")
         parameters = llm_decision.get("parameters", {})
         
@@ -143,23 +163,6 @@ class BaseAgent(ABC):
             self.current_tool_context = None
             return self._create_error_response(f"'{tool_name}' adinda bir arac bulunamadi.")
 
-        # --- YENİ EKLENTİ: Otomatik Cluster ID Enjeksiyonu ---
-        # 1. Agent'ın manager'a erişimi var mı diye kontrol et (constructor'da enjekte edilmeli)
-        if hasattr(self, 'manager') and self.manager:
-            # 2. Seçilen aracın 'cluster_id' parametresine ihtiyacı var mı?
-            tool_requires_cluster_id = False
-            for param_def in tool_info.get("parameters", []):
-                if param_def.get("name") == "cluster_id":
-                    tool_requires_cluster_id = True
-                    break
-            
-            # 3. Eğer LLM cluster_id'yi sağlamadıysa ve araç buna ihtiyaç duyuyorsa, global state'den enjekte et.
-            if tool_requires_cluster_id and "cluster_id" not in parameters:
-                contextual_params = self.manager.get_contextual_parameters()
-                if contextual_params.get("cluster_id"):
-                    parameters["cluster_id"] = contextual_params["cluster_id"]
-                    print(f"[{self.category}] Otomatik enjeksiyon: cluster_id={contextual_params['cluster_id']} araca eklendi.")
-        # --- ENJEKSİYON BİTİŞİ ---
 
         # Eksik parametre kontrolü (enjeksiyon sonrasında yapılır)
         missing_params = []
@@ -208,46 +211,7 @@ class BaseAgent(ABC):
             
         self.current_tool_context = None
         return self.execute_tool(tool_name, all_params, original_request=original_request)
-    
-    # kubex-llm-fresh-start/base_agent.py
-
-    def _call_llm_for_tool_selection(self, prompt: str, use_history: bool = True) -> Dict[str, Any]:
-        """LLM'den araç seçimi iste - iyileştirilmiş context ile"""
-        try:
-            system_prompt = self.get_system_prompt() # Sistem komutunu al
-            
-            # --- YENİ LOGLAMA ---
-            print("\n" + "="*50)
-            #print(f"[{self.category}] Agent'a Gönderilen Sistem Komutu:\n{system_prompt}")
-            print(f"[{self.category}] Kullanıcı İsteği: {prompt}")
-            print("="*50 + "\n")
-            # --- LOGLAMA SONU ---
-
-            if self.waiting_for_parameters and self.current_tool_context and use_history:
-                context_reminder = (
-                    f"BAGLAM: Daha once '{self.current_tool_context['tool_name']}' aracini sectim. "
-                    f"Eksik parametreler: {', '.join(self.current_tool_context['missing_params'])}. "
-                    f"ORIJINAL ISTEK: {self.current_tool_context.get('original_request', 'bilinmiyor')}\n"
-                    f"Kullanicinin yeni mesaji bu parametreleri saglamaya yonelik olmali.\n\n"
-                    f"Kullanici mesaji: {prompt}"
-                )
-                response = self.client.chat(user_prompt=context_reminder, system_prompt=system_prompt, use_history=True)
-            else:
-                response = self.client.chat(user_prompt=prompt, system_prompt=system_prompt, use_history=use_history)
-            
-            content = response.get("message", {}).get("content", "{}")
-
-
-            first_brace_index = content.find('{')
-            if first_brace_index == -1:
-                raise ValueError("JSON bulunamadı")
-            json_str_with_trailing_junk = content[first_brace_index:]
-            
-            decoded_json, _ = json.JSONDecoder().raw_decode(json_str_with_trailing_junk)
-            return decoded_json
-        except Exception as e:
-            print(f"[{self.category}] LLM'den geçerli JSON alınamadı: {e}")
-            return {"tool_name": "chat", "parameters": {"response": "Ne istediginizi anlayamadim, lutfen daha net bir sekilde ifade eder misiniz?"}}    
+   
     def _create_error_response(self, error_message: str) -> Generator[str, None, None]:
         """Hata yanıtı oluştur"""
         # YENI: Error'u da context'e ekle
@@ -259,47 +223,20 @@ class BaseAgent(ABC):
         return stream_response()
     
     def _summarize_result_for_user(self, result: Any, original_request: str = None) -> Generator[str, None, None]:
-        """YENI: Araç sonucunu kullanıcı için özetle - orijinal istek ile birlikte"""
-
         if not original_request:
             original_request = self.last_user_request or "Bilinmeyen istek"
 
-        json_data = json.dumps(result, indent=2, ensure_ascii=False)
-
-        # --- YENİ İYİLEŞTİRİLMİŞ PROMPT ---
-        summary_prompt = (
-            "### GÖREV VE PERSONA ###\n"
-            "Senin görevin, bir Kubernetes API aracından gelen teknik JSON verisini analiz etmek ve sonucu kullanıcıya sunmaktır. "
-            "Sen, teknik bilgiyi basitleştiren, kullanıcı dostu ve proaktif bir tercümansın.\n\n"
-            "### TALİMATLAR ###\n"
-            "1. **Bağlamı Koru:** Kullanıcının orijinal isteğini (`ORIJINAL KULLANICI ISTEGI`) dikkate alarak yanıt ver. "
-            "Yanıtın, kullanıcının sorusuna doğrudan cevap olduğundan emin ol.\n"
-            "2. **Başarı Durumu Yorumlama:**\n"
-            "   - Eğer işlem başarılıysa (`status: success`) ve sonuç bir liste ise, listenin içeriğini özetle. "
-            "Eğer liste boşsa (`count: 0` veya `[]`), \"İlgili kriterlere uygun kaynak bulunamadı.\" gibi net bir ifade kullan.\n"
-            "   - Eğer işlem bir yaratma/silme/güncelleme ise, işlemin başarıyla tamamlandığını teyit et.\n"
-            "3. **Hata Durumu Yorumlama (Proaktif Yaklaşım):**\n"
-            "   - Eğer işlem başarısızsa (`status: error`), hatayı sadece aktarma. Hatayı kullanıcı diline çevir.\n"
-            "   - Hata mesajına dayanarak olası nedeni tahmin et (örn: \"Resource not found\" -> \"Belirttiğiniz isimde bir kaynak bulunamadı.\").\n"
-            "   - Kullanıcıya bir sonraki adımda neyi kontrol etmesi gerektiğine dair bir öneride bulun (örn: \"Lütfen yazdığınız ismi kontrol edin veya kaynağın doğru namespace'de olduğundan emin olun.\").\n\n"
-            "### VERİLER ###\n"
-            f"**ORIJINAL KULLANICI ISTEGI:** {original_request}\n\n"
-            f"**İŞLENECEK TEKNİK JSON VERİSİ:**\n{json_data}\n\n"
-            f"### ÇIKIŞ ###\nYukarıdaki talimatlara göre oluşturulmuş, akıcı ve doğal dilde (Türkçe) yanıtı üret."
-        )
-
-        print(f"[{self.category}] Araç sonucu için LLM'den özet isteniyor (orijinal istek: {original_request[:50]}...)")
-
-        response_generator = self.client.chat_stream(
-            user_prompt=summary_prompt,
-            use_history=True # Bağlamı korumak için sohbet geçmişini kullan
+        response_generator = self.summary_llm_service.summarize_stream(
+            tool_result=result,
+            original_request=original_request,
+            agent_category=self.category
         )
         
-        # Response'u collect et ve context'e ekle
-        full_response = ""
-        for chunk in response_generator:
-            full_response += chunk
-            yield chunk
+        full_response = "".join(list(response_generator))
             
         if original_request:
             self.add_to_conversation_context(original_request, full_response)
+        
+        def stream_wrapper():
+            yield full_response
+        return stream_wrapper()
