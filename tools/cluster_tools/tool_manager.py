@@ -78,7 +78,7 @@ paths:
 """
 
 class ToolManager:
-    def __init__(self):
+    def __init__(self,active_cluster_id):
         self.spec = yaml.safe_load(OPENAPI_SPEC_YAML)
         self.tools = self._parse_spec()
 

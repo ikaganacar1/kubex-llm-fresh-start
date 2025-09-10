@@ -1,9 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List, Generator, Union, Optional 
-import logging
 import json
-
-logger = logging.getLogger(__name__)
 
 class BaseAgent(ABC):
     """Tüm ajanlar için temel sınıf - İyileştirilmiş memory ve context yönetimi ile"""
@@ -30,11 +27,17 @@ class BaseAgent(ABC):
     
     def get_system_prompt(self) -> str:
         """Agent için system prompt oluşturur"""
-        tools_description_lines = [f"Bu kategorideki ({self.category}) islemleri icin asagidaki araclardan birini secebilirsin:"]
+        tools_description_lines = []
         tools_dict = self.get_tools()
-        
+
         for name, details in tools_dict.items():
-            param_list = [f"{p.get('name', 'param')} ({p.get('in', 'N/A')})" for p in details.get("parameters", [])]
+            param_list = []
+            for p in details.get("parameters", []):
+                param_name = p.get('name', 'param')
+                # Otomatik enjekte edilen parametreleri prompt'ta gizle veya işaretle
+                if param_name != "cluster_id":
+                    param_list.append(f"{param_name} ({p.get('in', 'N/A')})")
+
             params_str = ", ".join(param_list) if param_list else "Yok"
             tools_description_lines.append(
                 f"- Arac Adi: '{name}'\n"
@@ -43,30 +46,34 @@ class BaseAgent(ABC):
             )
         tools_prompt = "\n".join(tools_description_lines)
 
-        # YENI: Context bilgisi eklendi
         context_info = ""
         if self.conversation_context:
-            context_info = f"\n\nSON SOHBET OZETI:\n{self._get_conversation_summary()}\n"
+            context_info = f"\n\n### SON SOHBET OZETI ###\n{self._get_conversation_summary()}\n"
 
+        # --- YENİ İYİLEŞTİRİLMİŞ PROMPT ---
         return (
-            f"Sen {self.category} uzmanı bir asistansın. {self.description}\n\n"
-            f"{tools_prompt}\n\n"
+            f"### ROL VE UZMANLIK ALANI ###\n"
+            f"Sen {self.category} konusunda uzman bir asistansın. Görevin, kullanıcının isteğini analiz etmek, "
+            f"bu isteği gerçekleştirmek için aşağıdaki araçlardan en uygun olanını seçmek ve çalıştırmak için gerekli tüm parametreleri toplamaktır.\n\n"
+            f"### ARAÇ SETİ ({self.category}) ###\n{tools_prompt}\n\n"
             f"{context_info}"
-            "ONEMLI KURALLAR:\n"
-            "1. Eger daha once bir arac sectin ve parametreler eksikse, kullanicinin yeni mesajlarini "
-            "o aracin eksik parametrelerini tamamlamak icin kullan.\n"
-            "2. Kullanici tamamen farkli bir konu actiginda yeni bir arac sec veya sohbet et.\n"
-            "3. Parametre toplama sirasinda kullaniciya sabir goster ve eksik bilgileri net sor.\n"
-            "4. ONEMLI: Tool sonuclarini verirken kullanicinin ORIJINAL SORUSUNU ve BAGLAMINI unutma!\n"
-            "5. Onceki yanıtlarin hakkinda soru sorulursa conversation context'ini kullan.\n\n"
-            "Kullanicinin istegini analiz ettikten sonra, YALNIZCA bir JSON objesi dondur:\n\n"
-            "1. Arac kullanacaksan:\n"
+            "### BAĞLAM VE PARAMETRE YÖNETİMİ KURALLARI ###\n"
+            "1. **Öncelikli Görev: Eksik Parametre Toplama:**\n"
+            "   - Eğer bir araç seçilmişse (`waiting_for_parameters = True`) ve parametreleri eksikse, TARTIŞMASIZ önceliğin bu eksik parametreleri kullanıcıdan istemektir.\n"
+            "   - Kullanıcının yeni mesajını, bu eksik parametreleri doldurmak için bir yanıt olarak yorumla.\n"
+            "   - Ancak, kullanıcı yeni mesajında açıkça ve tamamen farklı bir konuya geçerse, bu kuralı devre dışı bırak ve yeni isteği analiz et.\n"
+            "2. **Otomatik Bağlam Enjeksiyonu (ÇOK ÖNEMLİ):**\n"
+            "   - `cluster_id` parametresi, sistem tarafından global bağlamdan otomatik olarak sağlanmaktadır.\n"
+            "   - Kullanıcıya `cluster_id` Sorma. Sadece diğer (örn: `namespace`, `deployment_name`) eksik parametrelere odaklan.\n"
+            "3. **Sohbet Modu:** Eğer kullanıcının isteği listedeki araçlarla gerçekleştirilemiyorsa veya kullanıcı sadece sohbet etmek istiyorsa, `tool_name: \"chat\"` kullan.\n\n"
+            "### ÇIKIŞ FORMATI ###\n"
+            "Analiz sonucunda YALNIZCA bir JSON objesi döndür:\n\n"
+            "1. Arac Kullanimi:\n"
             '{"tool_name": "kullanilacak_arac_adi", "parameters": {"parametre_adi": "deger"}}\n\n'
-            "2. Sohbet edeceksen:\n"
+            "2. Sohbet/Yanit:\n"
             '{"tool_name": "chat", "parameters": {"response": "kullaniciya_verilecek_cevap"}}\n\n'
-            "Yanitinda JSON objesi disinda KESINLIKLE hicbir metin, aciklama veya formatlama isareti olmasin."
+            "Yanitinda JSON objesi disinda KESINLIKLE hicbir metin veya aciklama olmasin."
         )
-    
     def reset_context(self):
         """Bağlamı sıfırla"""
         self.waiting_for_parameters = False
@@ -102,7 +109,7 @@ class BaseAgent(ABC):
     
     def process_request(self, prompt: str) -> Union[Dict[str, Any], Generator[str, None, None]]:
         """İsteği işle - iyileştirilmiş memory management ve otomatik enjeksiyon ile"""
-        logger.info(f"[{self.category}] İstek işleniyor: {prompt}")
+        print(f"[{self.category}] İstek işleniyor: {prompt}")
         
         self.last_user_request = prompt
         
@@ -124,7 +131,7 @@ class BaseAgent(ABC):
         tool_info = tools_dict.get(tool_name)
         
         if not tool_info:
-            logger.warning(f"[{self.category}] LLM var olmayan bir araç seçti: {tool_name}")
+            print(f"[{self.category}] LLM var olmayan bir araç seçti: {tool_name}")
             self.waiting_for_parameters = False
             self.current_tool_context = None
             return self._create_error_response(f"'{tool_name}' adinda bir arac bulunamadi.")
@@ -144,7 +151,7 @@ class BaseAgent(ABC):
                 contextual_params = self.manager.get_contextual_parameters()
                 if contextual_params.get("cluster_id"):
                     parameters["cluster_id"] = contextual_params["cluster_id"]
-                    logger.info(f"[{self.category}] Otomatik enjeksiyon: cluster_id={contextual_params['cluster_id']} araca eklendi.")
+                    print(f"[{self.category}] Otomatik enjeksiyon: cluster_id={contextual_params['cluster_id']} araca eklendi.")
         # --- ENJEKSİYON BİTİŞİ ---
 
         # Eksik parametre kontrolü (enjeksiyon sonrasında yapılır)
@@ -154,7 +161,7 @@ class BaseAgent(ABC):
                 missing_params.append(required_param.get("name"))
 
         if missing_params:
-            logger.info(f"[{self.category}] Eksik parametreler tespit edildi: {missing_params}")
+            print(f"[{self.category}] Eksik parametreler tespit edildi: {missing_params}")
             
             self.waiting_for_parameters = True
             self.current_tool_context = {
@@ -186,10 +193,10 @@ class BaseAgent(ABC):
         if self.current_tool_context:
             original_request = self.current_tool_context.get("original_request", "Original request key missing")
         
-        logger.info(f"[{self.category}] Finalizing tool execution.")
-        logger.info(f"[{self.category}] Tool Name: {tool_name}")
-        logger.info(f"[{self.category}] All Parameters for execution: {all_params}")
-        logger.info(f"[{self.category}] Original Request context: {original_request}")
+        print(f"[{self.category}] Finalizing tool execution.")
+        print(f"[{self.category}] Tool Name: {tool_name}")
+        print(f"[{self.category}] All Parameters for execution: {all_params}")
+        print(f"[{self.category}] Original Request context: {original_request}")
         # --- DEBUG LOGGING BİTİŞİ ---
             
         self.current_tool_context = None
@@ -219,7 +226,7 @@ class BaseAgent(ABC):
             decoded_json, _ = json.JSONDecoder().raw_decode(json_str_with_trailing_junk)
             return decoded_json
         except Exception as e:
-            logger.error(f"[{self.category}] LLM'den geçerli JSON alınamadı: {e}")
+            print(f"[{self.category}] LLM'den geçerli JSON alınamadı: {e}")
             return {"tool_name": "chat", "parameters": {"response": "Ne istediginizi anlayamadim, lutfen daha net bir sekilde ifade eder misiniz?"}}
     
     def _create_error_response(self, error_message: str) -> Generator[str, None, None]:
@@ -234,27 +241,39 @@ class BaseAgent(ABC):
     
     def _summarize_result_for_user(self, result: Any, original_request: str = None) -> Generator[str, None, None]:
         """YENI: Araç sonucunu kullanıcı için özetle - orijinal istek ile birlikte"""
-        
-        # Orijinal request bilgisini al
+
         if not original_request:
             original_request = self.last_user_request or "Bilinmeyen istek"
-        
+
+        json_data = json.dumps(result, indent=2, ensure_ascii=False)
+
+        # --- YENİ İYİLEŞTİRİLMİŞ PROMPT ---
         summary_prompt = (
-            f"ORIJINAL KULLANICI ISTEGI: {original_request}\n\n"
-            f"Bir {self.category} araci calistirildi ve sonuc olarak asagidaki JSON verisi alindi. "
-            f"Bu sonucu kullanicinin ORIJINAL ISTEGINE uygun olarak, kolay anlasilir, dogal bir dilde (Turkce) ozetle. "
-            f"Kullanicinin sorusunu ve baglamini UNUTMA! Eger bir hata varsa hatayi belirt. "
-            f"Teknik terimleri basitce acikla.\n\n"
-            f"JSON Verisi:\n{json.dumps(result, indent=2, ensure_ascii=False)}\n\n"
-            f"ONEMLI: Yanıtını kullanicinin orijinal sorusu olan '{original_request}' ile iliskilendir."
+            "### GÖREV VE PERSONA ###\n"
+            "Senin görevin, bir Kubernetes API aracından gelen teknik JSON verisini analiz etmek ve sonucu kullanıcıya sunmaktır. "
+            "Sen, teknik bilgiyi basitleştiren, kullanıcı dostu ve proaktif bir tercümansın.\n\n"
+            "### TALİMATLAR ###\n"
+            "1. **Bağlamı Koru:** Kullanıcının orijinal isteğini (`ORIJINAL KULLANICI ISTEGI`) dikkate alarak yanıt ver. "
+            "Yanıtın, kullanıcının sorusuna doğrudan cevap olduğundan emin ol.\n"
+            "2. **Başarı Durumu Yorumlama:**\n"
+            "   - Eğer işlem başarılıysa (`status: success`) ve sonuç bir liste ise, listenin içeriğini özetle. "
+            "Eğer liste boşsa (`count: 0` veya `[]`), \"İlgili kriterlere uygun kaynak bulunamadı.\" gibi net bir ifade kullan.\n"
+            "   - Eğer işlem bir yaratma/silme/güncelleme ise, işlemin başarıyla tamamlandığını teyit et.\n"
+            "3. **Hata Durumu Yorumlama (Proaktif Yaklaşım):**\n"
+            "   - Eğer işlem başarısızsa (`status: error`), hatayı sadece aktarma. Hatayı kullanıcı diline çevir.\n"
+            "   - Hata mesajına dayanarak olası nedeni tahmin et (örn: \"Resource not found\" -> \"Belirttiğiniz isimde bir kaynak bulunamadı.\").\n"
+            "   - Kullanıcıya bir sonraki adımda neyi kontrol etmesi gerektiğine dair bir öneride bulun (örn: \"Lütfen yazdığınız ismi kontrol edin veya kaynağın doğru namespace'de olduğundan emin olun.\").\n\n"
+            "### VERİLER ###\n"
+            f"**ORIJINAL KULLANICI ISTEGI:** {original_request}\n\n"
+            f"**İŞLENECEK TEKNİK JSON VERİSİ:**\n{json_data}\n\n"
+            f"### ÇIKIŞ ###\nYukarıdaki talimatlara göre oluşturulmuş, akıcı ve doğal dilde (Türkçe) yanıtı üret."
         )
-        
-        logger.info(f"[{self.category}] Araç sonucu için LLM'den özet isteniyor (orijinal istek: {original_request[:50]}...)")
-        
-        # YENI: use_history=True yaparak conversation context'i koru
+
+        print(f"[{self.category}] Araç sonucu için LLM'den özet isteniyor (orijinal istek: {original_request[:50]}...)")
+
         response_generator = self.client.chat_stream(
             user_prompt=summary_prompt,
-            use_history=True  # DEĞIŞTI: False yerine True
+            use_history=True # Bağlamı korumak için sohbet geçmişini kullan
         )
         
         # Response'u collect et ve context'e ekle
@@ -263,6 +282,5 @@ class BaseAgent(ABC):
             full_response += chunk
             yield chunk
             
-        # YENI: Tool response'u context'e ekle
         if original_request:
             self.add_to_conversation_context(original_request, full_response)

@@ -9,16 +9,26 @@ logger = logging.getLogger(__name__)
 class ClusterAgent(BaseAgent):
     """Kubernetes Cluster işlemleri için özelleşmiş agent - İyileştirilmiş context yönetimi ile"""
     
-    def __init__(self, client, manager: Optional[Any] = None):
+    def __init__(self, client,active_cluster_id, manager: Optional[Any] = None):
         super().__init__(
             client=client,
             category="Kubernetes Cluster",
             description="Kubernetes cluster'larını yönetir, listeler, oluşturur ve günceller.",
             manager=manager # Manager'ı BaseAgent'a aktar
         )
-        self.tool_manager = ToolManager()
-        self.cluster_api = ClusterAPITools(base_url="http://10.67.67.195:8000")
-    
+        self.active_cluster_id = active_cluster_id
+        self.tool_manager = ToolManager(active_cluster_id = active_cluster_id)
+        base_url = getattr(client, 'base_url', 'http://10.67.67.195:8000')
+        self.cluster_api = ClusterAPITools(base_url=base_url, active_cluster_id = active_cluster_id)
+
+    def update_active_cluster(self, cluster_id: str):
+        self.active_cluster_id = cluster_id
+        self.tool_manager.active_cluster_id = cluster_id
+        self.cluster_api.active_cluster_id = cluster_id
+        # Tool'ları yeniden oluşturmaya gerek yok, çünkü path'ler dinamik olarak ID alıyor.
+        print(f"[{self.category}] Active cluster updated to: {cluster_id}")
+
+        
     def get_tools(self) -> Dict[str, Any]:
         """Cluster işlemleri için mevcut araçları döndürür"""
         return self.tool_manager.tools

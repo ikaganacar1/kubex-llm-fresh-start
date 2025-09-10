@@ -7,14 +7,15 @@ logger = logging.getLogger(__name__)
 class RepositoryAPITools:
     """Kubernetes Helm Repository API işlemleri için gerçek API tool'ları"""
     
-    def __init__(self, base_url: str):
+    def __init__(self, base_url: str, active_cluster_id):
         self.base_url = base_url.rstrip('/')
         self.session = requests.Session()
+        self.active_cluster_id = active_cluster_id
         
-    def list_repositories(self, cluster_id: str) -> Dict[str, Any]:
+    def list_repositories(self) -> Dict[str, Any]:
         """Belirtilen cluster'daki tüm Helm repository'lerini listeler"""
         try:
-            url = f"{self.base_url}/repositories/{cluster_id}/list"
+            url = f"{self.base_url}/repositories/{self.active_cluster_id}/list"
             logger.info(f"[RepositoryAPI] Repository listesi alınıyor: {url}")
             
             response = self.session.get(url, timeout=30)
@@ -24,7 +25,7 @@ class RepositoryAPITools:
             
             return {
                 "status": "success",
-                "cluster_id": cluster_id,
+                "cluster_id": self.active_cluster_id,
                 "repositories": data.get("repositories", []),
                 "count": data.get("count", 0),
                 "message": f"{data.get('count', 0)} repository bulundu"
@@ -35,13 +36,13 @@ class RepositoryAPITools:
             return {
                 "status": "error",
                 "message": f"Repository listesi alınamadı: {str(e)}",
-                "cluster_id": cluster_id
+                "cluster_id": self.active_cluster_id
             }
     
-    def add_repository(self, cluster_id: str, name: str, url: str) -> Dict[str, Any]:
+    def add_repository(self, name: str, url: str) -> Dict[str, Any]:
         """Cluster'a yeni bir Helm repository ekler"""
         try:
-            api_url = f"{self.base_url}/repositories/{cluster_id}/add"
+            api_url = f"{self.base_url}/repositories/{self.active_cluster_id}/add"
             payload = {
                 "name": name,
                 "url": url
@@ -56,7 +57,7 @@ class RepositoryAPITools:
             
             return {
                 "status": "success",
-                "cluster_id": cluster_id,
+                "cluster_id": self.active_cluster_id,
                 "name": name,
                 "url": url,
                 "message": data.get("message", "Repository başarıyla eklendi")
@@ -67,14 +68,14 @@ class RepositoryAPITools:
             return {
                 "status": "error",
                 "message": f"Repository eklenemedi: {str(e)}",
-                "cluster_id": cluster_id,
+                "cluster_id": self.active_cluster_id,
                 "name": name
             }
     
-    def delete_repository(self, cluster_id: str, repository_name: str) -> Dict[str, Any]:
+    def delete_repository(self, repository_name: str) -> Dict[str, Any]:
         """Belirtilen Helm repository'yi siler"""
         try:
-            url = f"{self.base_url}/repositories/{cluster_id}/{repository_name}"
+            url = f"{self.base_url}/repositories/{self.active_cluster_id}/{repository_name}"
             
             logger.info(f"[RepositoryAPI] Repository siliniyor: {repository_name}")
             
@@ -85,7 +86,7 @@ class RepositoryAPITools:
             
             return {
                 "status": "success",
-                "cluster_id": cluster_id,
+                "cluster_id": self.active_cluster_id,
                 "name": repository_name,
                 "message": data.get("message", "Repository başarıyla silindi")
             }
@@ -95,14 +96,14 @@ class RepositoryAPITools:
             return {
                 "status": "error",
                 "message": f"Repository silinemedi: {str(e)}",
-                "cluster_id": cluster_id,
+                "cluster_id": self.active_cluster_id,
                 "name": repository_name
             }
     
-    def update_repositories(self, cluster_id: str) -> Dict[str, Any]:
+    def update_repositories(self) -> Dict[str, Any]:
         """Cluster'daki tüm Helm repository'lerini günceller"""
         try:
-            url = f"{self.base_url}/repositories/{cluster_id}/update"
+            url = f"{self.base_url}/repositories/{self.active_cluster_id}/update"
             
             logger.info(f"[RepositoryAPI] Repository'ler güncelleniyor")
             
@@ -113,7 +114,7 @@ class RepositoryAPITools:
             
             return {
                 "status": "success",
-                "cluster_id": cluster_id,
+                "cluster_id": self.active_cluster_id,
                 "message": data.get("message", "Repository'ler başarıyla güncellendi")
             }
             
@@ -122,13 +123,13 @@ class RepositoryAPITools:
             return {
                 "status": "error",
                 "message": f"Repository'ler güncellenemedi: {str(e)}",
-                "cluster_id": cluster_id
+                "cluster_id": self.active_cluster_id
             }
     
-    def install_chart(self, cluster_id: str, chart: str, name: str, namespace: str, values: Optional[Dict] = None) -> Dict[str, Any]:
+    def install_chart(self, chart: str, name: str, namespace: str, values: Optional[Dict] = None) -> Dict[str, Any]:
         """Helm chart'ı cluster'a yükler"""
         try:
-            url = f"{self.base_url}/repositories/{cluster_id}/install"
+            url = f"{self.base_url}/repositories/{self.active_cluster_id}/install"
             payload = {
                 "chart": chart,
                 "name": name,
@@ -153,7 +154,7 @@ class RepositoryAPITools:
             
             return {
                 "status": "success",
-                "cluster_id": cluster_id,
+                "cluster_id": self.active_cluster_id,
                 "chart": chart,
                 "release_name": name,
                 "namespace": namespace,
@@ -165,7 +166,7 @@ class RepositoryAPITools:
             return {
                 "status": "error",
                 "message": f"Chart yüklenemedi: {str(e)}",
-                "cluster_id": cluster_id,
+                "cluster_id": self.active_cluster_id,
                 "chart": chart
             }
     

@@ -9,18 +9,26 @@ logger = logging.getLogger(__name__)
 class NamespaceAgent(BaseAgent):
     """Kubernetes Namespace işlemleri için özelleşmiş agent - İyileştirilmiş context yönetimi ile"""
     
-    def __init__(self, client, manager: Optional[Any] = None):
+    def __init__(self, client,active_cluster_id="1", manager: Optional[Any] = None):
         super().__init__(
             client=client,
             category="Kubernetes Namespace",
             description="Kubernetes namespace'lerini yönetir, listeler ve detaylarını gösterir.",
             manager=manager 
         )
-        self.tool_manager = NamespaceToolManager()
+        self.active_cluster_id = active_cluster_id
+        self.tool_manager = NamespaceToolManager(active_cluster_id = active_cluster_id)
         # Client'tan base_url'i al veya default kullan
         base_url = getattr(client, 'base_url', 'http://10.67.67.195:8000')
-        self.namespace_api = NamespaceAPITools(base_url=base_url)
-    
+        self.namespace_api = NamespaceAPITools(base_url=base_url,active_cluster_id = active_cluster_id)
+
+    def update_active_cluster(self, cluster_id: str):
+        self.active_cluster_id = cluster_id
+        self.tool_manager = NamespaceToolManager(active_cluster_id=cluster_id)
+        self.namespace_api.active_cluster_id = cluster_id
+        print(f"[{self.category}] Active cluster updated to: {cluster_id}")
+
+        
     def get_tools(self) -> Dict[str, Any]:
         """Namespace işlemleri için mevcut araçları döndürür"""
         return self.tool_manager.tools

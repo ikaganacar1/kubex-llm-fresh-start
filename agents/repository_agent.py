@@ -9,18 +9,26 @@ logger = logging.getLogger(__name__)
 class RepositoryAgent(BaseAgent):
     """Kubernetes Helm Repository işlemleri için özelleşmiş agent - İyileştirilmiş context yönetimi ile"""
     
-    def __init__(self, client, manager: Optional[Any] = None):
+    def __init__(self, client,active_cluster_id, manager: Optional[Any] = None):
         super().__init__(
             client=client,
             category="Helm Repository",
             description="Helm repository'lerini yönetir, chart'ları listeler ve yükler.",
             manager=manager 
         )
-        self.tool_manager = RepositoryToolManager()
+        self.active_cluster_id = active_cluster_id
+        self.tool_manager = RepositoryToolManager(active_cluster_id = active_cluster_id)
         # Client'tan base_url'i al veya default kullan
         base_url = getattr(client, 'base_url', 'http://10.67.67.195:8000')
-        self.repository_api = RepositoryAPITools(base_url=base_url)
-    
+        self.repository_api = RepositoryAPITools(base_url=base_url, active_cluster_id = active_cluster_id)
+
+    def update_active_cluster(self, cluster_id: str):
+        self.active_cluster_id = cluster_id
+        self.tool_manager = RepositoryToolManager(active_cluster_id=cluster_id)
+        self.repository_api.active_cluster_id = cluster_id
+        print(f"[{self.category}] Active cluster updated to: {cluster_id}")
+
+
     def get_tools(self) -> Dict[str, Any]:
         """Repository işlemleri için mevcut araçları döndürür"""
         return self.tool_manager.tools

@@ -3,7 +3,8 @@ from typing import Dict, Any
 class RepositoryToolManager:
     """Repository tool'larını yöneten API tool manager"""
     
-    def __init__(self):
+    def __init__(self,active_cluster_id):
+        self.active_cluster_id = active_cluster_id
         self.tools = self._define_tools()
     
     def _define_tools(self) -> Dict[str, Any]:
@@ -13,15 +14,9 @@ class RepositoryToolManager:
                 "summary": "Cluster'daki tüm Helm repository'lerini listeler",
                 "description": "Kubernetes cluster'ına eklenmiş tüm Helm repository'lerinin listesini getirir",
                 "method": "GET",
-                "path": "/repositories/{cluster_id}/list",
+                "path": f"/repositories/{self.active_cluster_id}/list",
                 "parameters": [
-                    {
-                        "name": "cluster_id",
-                        "in": "path",
-                        "required": True,
-                        "type": "string",
-                        "description": "Cluster'ın benzersiz kimliği (UUID formatında)"
-                    }
+                    
                 ]
             },
             
@@ -29,15 +24,9 @@ class RepositoryToolManager:
                 "summary": "Cluster'a yeni bir Helm repository ekler",
                 "description": "Belirtilen URL'deki Helm repository'yi cluster'a ekler",
                 "method": "POST",
-                "path": "/repositories/{cluster_id}/add",
+                "path": f"/repositories/{self.active_cluster_id}/add",
                 "parameters": [
-                    {
-                        "name": "cluster_id",
-                        "in": "path",
-                        "required": True,
-                        "type": "string",
-                        "description": "Cluster'ın benzersiz kimliği (UUID formatında)"
-                    },
+                  
                     {
                         "name": "name",
                         "in": "body",
@@ -59,15 +48,8 @@ class RepositoryToolManager:
                 "summary": "Belirtilen Helm repository'yi siler",
                 "description": "Cluster'dan belirtilen repository'yi kaldırır",
                 "method": "DELETE",
-                "path": "/repositories/{cluster_id}/{repository_name}",
+                "path": f"/repositories/{self.active_cluster_id}/{'{repository_name}'}",
                 "parameters": [
-                    {
-                        "name": "cluster_id",
-                        "in": "path",
-                        "required": True,
-                        "type": "string",
-                        "description": "Cluster'ın benzersiz kimliği (UUID formatında)"
-                    },
                     {
                         "name": "repository_name",
                         "in": "path",
@@ -82,31 +64,17 @@ class RepositoryToolManager:
                 "summary": "Tüm Helm repository'lerini günceller",
                 "description": "Cluster'daki tüm repository'lerin index'lerini günceller (helm repo update)",
                 "method": "POST",
-                "path": "/repositories/{cluster_id}/update",
-                "parameters": [
-                    {
-                        "name": "cluster_id",
-                        "in": "path",
-                        "required": True,
-                        "type": "string",
-                        "description": "Cluster'ın benzersiz kimliği (UUID formatında)"
-                    }
-                ]
+                "path": f"/repositories/{self.active_cluster_id}/update",
+                "parameters": []
             },
             
             "install_chart": {
                 "summary": "Helm chart'ı cluster'a yükler",
                 "description": "Belirtilen Helm chart'ı cluster'a deploy eder",
                 "method": "POST",
-                "path": "/repositories/{cluster_id}/install",
+                "path": f"/repositories/{self.active_cluster_id}/install",
                 "parameters": [
-                    {
-                        "name": "cluster_id",
-                        "in": "path",
-                        "required": True,
-                        "type": "string",
-                        "description": "Cluster'ın benzersiz kimliği (UUID formatında)"
-                    },
+                   
                     {
                         "name": "chart",
                         "in": "body",

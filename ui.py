@@ -47,13 +47,14 @@ def parse_and_display_response(full_response: str):
 # --- Kenar Çubuğu (Sidebar) ---
 with st.sidebar:
     st.header("⚙️ Yapılandırma")
-    base_url = st.text_input("Ollama URL", value="http://ai.ikaganacar.com")
+    ollama_url = st.text_input("Ollama URL", value="http://ai.ikaganacar.com")
+    kubex_url = st.text_input("Kubex URL", value="http://10.67.67.195:8000")
     model_name = st.text_input("Model Adı", value="qwen3:4b")
 
     if st.button("Bağlan", type="primary"):
         with st.spinner("Bağlanılıyor..."):
             try:
-                client = OllamaClient(base_url=base_url, model_name=model_name)
+                client = OllamaClient(ollama_url=ollama_url,kubex_url=kubex_url, model_name=model_name)
                 if client.test_connection():
                     st.session_state.agent_manager = AgentManager(client)
                     st.session_state.connected = True
@@ -184,7 +185,7 @@ if st.session_state.connected and st.session_state.agent_manager:
     if active_cluster_name:
         status = st.session_state.agent_manager.get_current_status()
         memory_size = status['global_context_size']
-        st.info(f"Seçili Cluster: **{active_cluster_name}** | Memory: {memory_size} etkileşim")
+        st.info(f"Seçili Cluster: **{active_cluster_name}**")
     else:
         st.warning("Lütfen kenar çubuğundan bir cluster seçerek başlayın.")
 

@@ -31,17 +31,19 @@ class OllamaClient:
 
     def __init__(
         self,
-        base_url: str,
+        ollama_url: str,
+        kubex_url: str,
         model_name: str = ModelType.QWEN3_4B.value
     ):
-        self.base_url = base_url.rstrip('/')
+        self.ollama_url = ollama_url.rstrip('/')
         self.model_name = model_name
-        self.api_chat = f"{self.base_url}/api/chat"
+        self.kubex_url = kubex_url
+        self.api_chat = f"{self.ollama_url}/api/chat"
         self.chat_history = []
 
     def test_connection(self) -> bool:
         try:
-            response = requests.get(f"{self.base_url}/api/tags", timeout=5)
+            response = requests.get(f"{self.ollama_url}/api/tags", timeout=5)
             return response.status_code == 200
         except requests.RequestException:
             return False

@@ -1,3 +1,5 @@
+# agent_manager.py
+
 import logging
 import json
 from typing import Dict, Any, List, Generator, Union, Optional
@@ -18,8 +20,8 @@ class AgentManager:
         
         self.global_conversation_context = []
         self.session_active = True
-        self.active_cluster_id: Optional[str] = None
-        self.active_cluster_name: Optional[str] = None # Kullanıcıya göstermek için isim
+        self.active_cluster_id: Optional[str] = "None"
+        self.active_cluster_name: Optional[str] = None 
 
         self.agents = self._initialize_agents()
         self.current_agent = None
@@ -29,10 +31,10 @@ class AgentManager:
     def _initialize_agents(self) -> Dict[str, Any]:
         """Mevcut agent'ları başlat"""
         return {
-            "cluster": ClusterAgent(self.client, manager=self),
-            "namespace": NamespaceAgent(self.client, manager=self),
-            "deployment": DeploymentAgent(self.client, manager=self),
-            "repository": RepositoryAgent(self.client, manager=self)
+            "cluster": ClusterAgent(self.client, manager=self, active_cluster_id=self.active_cluster_id),
+            "namespace": NamespaceAgent(self.client, manager=self, active_cluster_id=self.active_cluster_id),
+            "deployment": DeploymentAgent(self.client, manager=self, active_cluster_id=self.active_cluster_id),
+            "repository": RepositoryAgent(self.client, manager=self, active_cluster_id=self.active_cluster_id)
 
         }
     
@@ -41,28 +43,39 @@ class AgentManager:
         agent_descriptions = []
         for agent_key, agent in self.agents.items():
             agent_descriptions.append(f"- {agent_key}: {agent.category} - {agent.description}")
-        
+
         agents_text = "\n".join(agent_descriptions)
-        
-        # YENI: Global context bilgisi eklendi
+
+        # Global context bilgisi eklendi
         context_info = ""
         if self.global_conversation_context:
-            context_info = f"\n\nSON SOHBET OZETI:\n{self._get_global_context_summary()}\n"
-        
+            context_info = f"\n\n### SON SOHBET OZETI ###\n{self._get_global_context_summary()}\n"
+
+        # --- YENİ İYİLEŞTİRİLMİŞ PROMPT ---
         return (
-            "Sen bir Kubernetes uzmanı router asistanısın. Görevi, kullanıcının isteğini analiz ederek "
-            "hangi kategorideki işlemlerin yapılacağını belirlemektir.\n\n"
-            f"Mevcut kategoriler:\n{agents_text}\n\n"
+            "### ROL VE GÖREV ###\n"
+            "Sen, KUBEX sisteminin Merkezi Komut Yönlendiricisisin (Triage Expert). Ana görevin, kullanıcının isteğini analiz ederek "
+            "bu isteği yerine getirebilecek en uygun uzmanlık kategorisini (agent) belirlemektir.\n"
+
+            "Görevin sadece anahtar kelimelere bakmak değil, kullanıcının asıl niyetini ve ihtiyaç duyduğu eylem türünü anlamaktır.\n\n"
+            f"### MEVCUT UZMANLIK KATEGORİLERİ (AGENTLAR) ###\n{agents_text}\n"
             f"{context_info}"
-            "ONEMLI: Kullanicinin onceki sohbet baglamini ve referanslarini unutma!\n"
-            "Eger kullanici onceki bir yanıta referans veriyor veya soru soruyor ise, "
-            "mevcut aktif agent varsa ona yonlendir, yoksa chat modunda cevapla.\n\n"
-            "Kullanıcının isteğini analiz ettikten sonra, YALNIZCA bir JSON objesi döndür:\n\n"
+            "### KARAR VERME KURALLARI ###\n"
+            "1. **Niyet Analizi:** Kullanıcının isteğini dikkatlice incele. Kullanıcı bir kaynağı \"görmek/listelemek\" mi, "
+            "\"oluşturmak/değiştirmek\" mi yoksa \"silmek\" mi istiyor? İsteğin odağındaki kaynak nedir (Cluster, Deployment, Namespace, Repository)?\n"
+            "2. **Bağlam Takibi (Context Continuity):**\n"
+            "   - Eğer sohbet geçmişi (\"SON SOHBET OZETI\") incelendiğinde, kullanıcının son etkileşimin devamı niteliğinde bir soru sorduğu açıksa "
+            "(örn: \"Peki o deployment'ı ölçekle\"), yönlendirmeyi mevcut aktif agent üzerinden devam ettir. Yeni bir kategori seçimi yapma.\n"
+            "   - Eğer kullanıcı açıkça konuyu değiştirirse (örn: \"Tamam, şimdi de repoları listeleyelim\"), yeni konuya uygun kategoriyi seç.\n"
+            "3. **Chat Modu Kullanımı:** Eğer istek teknik bir Kubernetes işlemi (CRUD - Create, Read, Update, Delete) değilse VEYA "
+            "belirsiz bir selamlama/soru ise (örn: \"Merhaba\", \"Ne yapabiliyorsun?\"), \"chat\" kategorisini seç.\n\n"
+            "### ÇIKIŞ FORMATI ###\n"
+            "Kararını ve gerekçeni (reasoning) içeren, YALNIZCA bir JSON objesi döndür:\n\n"
             "1. Belirli bir kategori seçeceksen:\n"
-            '{"agent": "kategori_adi", "reasoning": "neden_bu_kategori_secildi"}\n\n'
+            '{"agent": "kategori_adi", "reasoning": "Kullanıcı deploymentları listelemek istediği için \'deployment\' kategorisi seçildi."}\n\n'
             "2. Genel sohbet edeceksen:\n"
-            '{"agent": "chat", "reasoning": "genel_sohbet_nedeni", "response": "kullaniciya_verilecek_cevap"}\n\n'
-            "Yanıtında JSON objesi dışında KESİNLİKLE hiçbir metin, açıklama veya formatlama işareti olmasın."
+            '{"agent": "chat", "reasoning": "Kullanıcı genel bir soru sordu, spesifik bir eylem talebi yok.", "response": "Ben bir Kubernetes yardımcısıyım ve yalnızca bu konuda çalışabilirim. Size nasıl yardımcı olabilirim?"}\n\n'
+            "Yanıtında JSON objesi dışında KESİNLİKLE hiçbir metin veya açıklama olmasın."
         )
     
     def _get_global_context_summary(self) -> str:
@@ -94,16 +107,16 @@ class AgentManager:
     
     def route_request(self, prompt: str) -> Union[Dict[str, Any], Generator[str, None, None]]:
         """İsteği uygun agent'a yönlendir - iyileştirilmiş context yönetimi ile"""
-        logger.info(f"[Router] İstek yönlendiriliyor: {prompt}")
+        print(f"[Router] İstek yönlendiriliyor: {prompt}")
         
         # Eğer aktif bir agent var ve parametre bekleniyorsa, o agent'a devam et
         if self.current_agent and self.current_agent.waiting_for_parameters:
-            logger.info(f"[Router] Mevcut agent ({self.current_agent.category}) parametre bekliyor, yönlendiriliyor")
+            print(f"[Router] Mevcut agent ({self.current_agent.category}) parametre bekliyor, yönlendiriliyor")
             return self.current_agent.process_request(prompt)
         
         # YENI: Eğer aktif agent var ve kullanıcı previous response hakkında soru soruyorsa
         if self.current_agent and self._is_referring_to_previous_response(prompt):
-            logger.info(f"[Router] Kullanıcı önceki yanıt hakkında soru soruyor, mevcut agent'a yönlendiriliyor")
+            print(f"[Router] Kullanıcı önceki yanıt hakkında soru soruyor, mevcut agent'a yönlendiriliyor")
             return self.current_agent.process_request(prompt)
         
         # Router LLM'den kategori seçimi iste
@@ -111,11 +124,11 @@ class AgentManager:
         selected_agent_key = routing_decision.get("agent")
         reasoning = routing_decision.get("reasoning", "")
         
-        logger.info(f"[Router] Seçilen kategori: {selected_agent_key}, Neden: {reasoning}")
+        print(f"[Router] Seçilen kategori: {selected_agent_key}, Neden: {reasoning}")
         
         # Chat seçildiyse direkt yanıt ver
         if selected_agent_key == "chat":
-            response_text = routing_decision.get("response", "Size nasıl yardımcı olabilirim?")
+            response_text = routing_decision.get("response", "Ben bir Kubernetes yardımcısıyım ve yalnızca bu konuda çalışabilirim. Size nasıl yardımcı olabilirim?")
             
             # YENI: Chat response'u global context'e ekle
             self.add_to_global_context(prompt, response_text, "Chat")
@@ -212,7 +225,7 @@ class AgentManager:
             return decoded_json
             
         except Exception as e:
-            logger.error(f"[Router] LLM'den geçerli yanıt alınamadı: {e}")
+            print(f"[Router] LLM'den geçerli yanıt alınamadı: {e}")
             return {
                 "agent": "chat", 
                 "reasoning": "Routing hatası",
@@ -232,7 +245,7 @@ class AgentManager:
         # YENI: Client history'yi tamamen temizle
         self.client.clear_chat_history()
         
-        logger.info("[Router] Tüm agent bağlamları ve global context sıfırlandı")
+        print("[Router] Tüm agent bağlamları ve global context sıfırlandı")
     
     def soft_reset_contexts(self):
         """YENI: Soft reset - sadece current operations'ı sıfırla, conversation memory'yi koru"""
@@ -241,7 +254,7 @@ class AgentManager:
             self.current_agent.current_tool_context = None
         
         self.waiting_for_parameters = False
-        logger.info("[Router] Soft reset tamamlandı - conversation memory korundu")
+        print("[Router] Soft reset tamamlandı - conversation memory korundu")
     
     def get_current_status(self) -> Dict[str, Any]:
         """Mevcut durumu döndür - iyileştirilmiş status bilgisi"""
@@ -260,7 +273,6 @@ class AgentManager:
         return list(self.agents.keys())
     
     def get_conversation_summary(self) -> str:
-        """YENI: Kullanıcı için conversation summary döndür"""
         if not self.global_conversation_context:
             return "Henüz bir sohbet geçmişi bulunmamaktadır."
         
@@ -274,14 +286,19 @@ class AgentManager:
         """Aktif cluster ID'yi merkezi olarak ayarlar."""
         self.active_cluster_id = cluster_id
         self.active_cluster_name = cluster_name
-        logger.info(f"[AgentManager] Aktif cluster UI tarafından ayarlandı: ID={cluster_id}, Adı={cluster_name}")
+        print(f"[AgentManager] Aktif cluster UI tarafından ayarlandı: ID={cluster_id}, Adı={cluster_name}")
+
+        # YENİ EKLENTİ: Agent'ları güncelle
+        for agent in self.agents.values():
+            if hasattr(agent, 'update_active_cluster'):
+                agent.update_active_cluster(cluster_id)
 
     def get_cluster_list_for_ui(self) -> List[Dict[str, Any]]:
         """LLM olmadan doğrudan cluster listesini çeker."""
         try:
             cluster_agent: ClusterAgent = self.agents.get("cluster")
             if not cluster_agent:
-                logger.error("Cluster agent bulunamadı.")
+                print("Cluster agent bulunamadı.")
                 return []
 
             api_response = cluster_agent.cluster_api.list_clusters()
@@ -299,14 +316,14 @@ class AgentManager:
                     return api_response["items"]
                 
                 else:
-                    logger.error(f"API yanıtı sözlük formatında ancak beklenen liste anahtarı ('records', 'data', 'items') bulunamadı. Anahtarlar: {api_response.keys()}")
+                    print(f"API yanıtı sözlük formatında ancak beklenen liste anahtarı ('records', 'data', 'items') bulunamadı. Anahtarlar: {api_response.keys()}")
                     return []
 
             elif isinstance(api_response, list):
                 return api_response
 
         except Exception as e:
-            logger.error(f"UI için cluster listesi çekilemedi: {e}")
+            print(f"UI için cluster listesi çekilemedi: {e}")
             return []
         
         return []

@@ -7,15 +7,16 @@ logger = logging.getLogger(__name__)
 class DeploymentAPITools:
     """Kubernetes Deployment API işlemleri için gerçek API tool'ları"""
     
-    def __init__(self, base_url: str):
+    def __init__(self, base_url: str, active_cluster_id):
         self.base_url = base_url.rstrip('/')
         self.session = requests.Session()
-        
-    def list_deployments(self, cluster_id: str) -> Dict[str, Any]:
+        self.active_cluster_id = active_cluster_id
+
+    def list_deployments(self) -> Dict[str, Any]:
         """Belirtilen cluster'daki tüm deployment'ları listeler"""
         try:
-            url = f"{self.base_url}/deployments/{cluster_id}/instant"
-            logger.info(f"[DeploymentAPI] Deployment listesi alınıyor: {url}")
+            url = f"{self.base_url}/deployments/{self.active_cluster_id}/instant"
+            print(f"[DeploymentAPI] Deployment listesi alınıyor: {url}")
             
             response = self.session.get(url, timeout=30)
             response.raise_for_status()
@@ -28,7 +29,7 @@ class DeploymentAPITools:
             
             return {
                 "status": "success",
-                "cluster_id": cluster_id,
+                "cluster_id": self.active_cluster_id,
                 "deployment_count": total_deployments,
                 "available_deployments": available_deployments,
                 "deployments": deployments,
@@ -40,20 +41,20 @@ class DeploymentAPITools:
             return {
                 "status": "error",
                 "message": f"Deployment listesi alınamadı: {str(e)}",
-                "cluster_id": cluster_id
+                "cluster_id": self.active_cluster_id
             }
     
-    def show_deployment(self, deployment_name: str, namespace: str, cluster_id: str) -> Dict[str, Any]:
+    def show_deployment(self, deployment_name: str, namespace: str) -> Dict[str, Any]:
         """Belirli bir deployment'ın detaylarını gösterir"""
         try:
             url = f"{self.base_url}/deployments/show"
             params = {
                 "deployment_name": deployment_name,
                 "namespace": namespace,
-                "cluster_id": cluster_id
+                "cluster_id": self.active_cluster_id
             }
             
-            logger.info(f"[DeploymentAPI] Deployment detayı alınıyor: {deployment_name}")
+            print(f"[DeploymentAPI] Deployment detayı alınıyor: {deployment_name}")
             
             response = self.session.get(url, params=params, timeout=30)
             response.raise_for_status()
@@ -64,7 +65,7 @@ class DeploymentAPITools:
                 "status": "success",
                 "deployment_name": deployment_name,
                 "namespace": namespace,
-                "cluster_id": cluster_id,
+                "cluster_id": self.active_cluster_id,
                 "deployment_detail": deployment_detail,
                 "message": f"'{deployment_name}' deployment detayları alındı"
             }
@@ -76,21 +77,21 @@ class DeploymentAPITools:
                 "message": f"'{deployment_name}' deployment detayı alınamadı: {str(e)}",
                 "deployment_name": deployment_name,
                 "namespace": namespace,
-                "cluster_id": cluster_id
+                "cluster_id": self.active_cluster_id
             }
     
-    def scale_deployment(self, cluster_id: str, deployment_name: str, namespace: str, replicas: int) -> Dict[str, Any]:
+    def scale_deployment(self, deployment_name: str, namespace: str, replicas: int) -> Dict[str, Any]:
         """Deployment'ı ölçekler (replica sayısını değiştirir)"""
         try:
             url = f"{self.base_url}/deployments/scale"
             payload = {
-                "cluster_id": cluster_id,
+                "cluster_id": self.active_cluster_id,
                 "deployment_name": deployment_name,
                 "namespace": namespace,
                 "replicas": replicas
             }
             
-            logger.info(f"[DeploymentAPI] Deployment ölçeklendiriliyor: {deployment_name} -> {replicas} replicas")
+            print(f"[DeploymentAPI] Deployment ölçeklendiriliyor: {deployment_name} -> {replicas} replicas")
             
             response = self.session.post(url, json=payload, timeout=30)
             response.raise_for_status()
@@ -101,7 +102,7 @@ class DeploymentAPITools:
                 "status": "success",
                 "deployment_name": deployment_name,
                 "namespace": namespace,
-                "cluster_id": cluster_id,
+                "cluster_id": self.active_cluster_id,
                 "new_replica_count": replicas,
                 "api_response": result,
                 "message": f"'{deployment_name}' deployment {replicas} replica'ya ölçeklendirildi"
@@ -114,21 +115,21 @@ class DeploymentAPITools:
                 "message": f"'{deployment_name}' deployment ölçeklendirilemedi: {str(e)}",
                 "deployment_name": deployment_name,
                 "namespace": namespace,
-                "cluster_id": cluster_id,
+                "cluster_id": self.active_cluster_id,
                 "requested_replicas": replicas
             }
     
-    def redeploy_deployment(self, cluster_id: str, deployment_name: str, namespace: str) -> Dict[str, Any]:
+    def redeploy_deployment(self, deployment_name: str, namespace: str) -> Dict[str, Any]:
         """Deployment'ı yeniden dağıtır (restart işlemi)"""
         try:
             url = f"{self.base_url}/deployments/redeploy"
             payload = {
-                "cluster_id": cluster_id,
+                "cluster_id": self.active_cluster_id,
                 "deployment_name": deployment_name,
                 "namespace": namespace
             }
             
-            logger.info(f"[DeploymentAPI] Deployment yeniden dağıtılıyor: {deployment_name}")
+            print(f"[DeploymentAPI] Deployment yeniden dağıtılıyor: {deployment_name}")
             
             response = self.session.post(url, json=payload, timeout=30)
             response.raise_for_status()
@@ -139,7 +140,7 @@ class DeploymentAPITools:
                 "status": "success",
                 "deployment_name": deployment_name,
                 "namespace": namespace,
-                "cluster_id": cluster_id,
+                "cluster_id": self.active_cluster_id,
                 "api_response": result,
                 "message": f"'{deployment_name}' deployment yeniden dağıtıldı"
             }
@@ -151,20 +152,20 @@ class DeploymentAPITools:
                 "message": f"'{deployment_name}' deployment yeniden dağıtılamadı: {str(e)}",
                 "deployment_name": deployment_name,
                 "namespace": namespace,
-                "cluster_id": cluster_id
+                "cluster_id": self.active_cluster_id
             }
     
-    def get_deployment_config(self, cluster_id: str, deployment_name: str, namespace: str) -> Dict[str, Any]:
+    def get_deployment_config(self, deployment_name: str, namespace: str) -> Dict[str, Any]:
         """Deployment'ın detaylı yapılandırmasını alır"""
         try:
             url = f"{self.base_url}/deployments/config"
             params = {
-                "cluster_id": cluster_id,
+                "cluster_id": self.active_cluster_id,
                 "deployment_name": deployment_name,
                 "namespace": namespace
             }
             
-            logger.info(f"[DeploymentAPI] Deployment config alınıyor: {deployment_name}")
+            print(f"[DeploymentAPI] Deployment config alınıyor: {deployment_name}")
             
             response = self.session.get(url, params=params, timeout=30)
             response.raise_for_status()
@@ -175,7 +176,7 @@ class DeploymentAPITools:
                 "status": "success",
                 "deployment_name": deployment_name,
                 "namespace": namespace,
-                "cluster_id": cluster_id,
+                "cluster_id": self.active_cluster_id,
                 "config": config_data,
                 "message": f"'{deployment_name}' deployment yapılandırması alındı"
             }
@@ -187,19 +188,19 @@ class DeploymentAPITools:
                 "message": f"'{deployment_name}' deployment yapılandırması alınamadı: {str(e)}",
                 "deployment_name": deployment_name,
                 "namespace": namespace,
-                "cluster_id": cluster_id
+                "cluster_id": self.active_cluster_id
             }
     
-    def get_deployment_pods(self, cluster_id: str, namespace_name: str, deployment_name: str = "apisix") -> Dict[str, Any]:
+    def get_deployment_pods(self, namespace_name: str, deployment_name: str = "apisix") -> Dict[str, Any]:
         """Deployment'a ait pod'ları listeler"""
         try:
             url = f"{self.base_url}/deployments/{deployment_name}/pods"
             params = {
-                "cluster_id": cluster_id,
+                "cluster_id": self.active_cluster_id,
                 "namespace_name": namespace_name
             }
             
-            logger.info(f"[DeploymentAPI] Deployment pod'ları alınıyor: {deployment_name}")
+            print(f"[DeploymentAPI] Deployment pod'ları alınıyor: {deployment_name}")
             
             response = self.session.get(url, params=params, timeout=30)
             response.raise_for_status()
@@ -215,7 +216,7 @@ class DeploymentAPITools:
                 "status": "success",
                 "deployment_name": deployment_name,
                 "namespace": namespace_name,
-                "cluster_id": cluster_id,
+                "cluster_id": self.active_cluster_id,
                 "pod_count": total_pods,
                 "online_pods": online_pods,
                 "running_pods": running_pods,
@@ -230,21 +231,21 @@ class DeploymentAPITools:
                 "message": f"'{deployment_name}' deployment pod'ları alınamadı: {str(e)}",
                 "deployment_name": deployment_name,
                 "namespace": namespace_name,
-                "cluster_id": cluster_id
+                "cluster_id": self.active_cluster_id
             }
     
-    def update_deployment_image(self, cluster_id: str, deployment_name: str, namespace: str, image: str) -> Dict[str, Any]:
+    def update_deployment_image(self, deployment_name: str, namespace: str, image: str) -> Dict[str, Any]:
         """Deployment'ın container image'ını günceller"""
         try:
             url = f"{self.base_url}/deployments/image"
             payload = {
-                "cluster_id": cluster_id,
+                "cluster_id": self.active_cluster_id,
                 "deployment_name": deployment_name,
                 "namespace": namespace,
                 "image": image
             }
             
-            logger.info(f"[DeploymentAPI] Deployment image güncelleniyor: {deployment_name} -> {image}")
+            print(f"[DeploymentAPI] Deployment image güncelleniyor: {deployment_name} -> {image}")
             
             response = self.session.patch(url, json=payload, timeout=30)
             response.raise_for_status()
@@ -255,7 +256,7 @@ class DeploymentAPITools:
                 "status": "success",
                 "deployment_name": deployment_name,
                 "namespace": namespace,
-                "cluster_id": cluster_id,
+                "cluster_id": self.active_cluster_id,
                 "new_image": image,
                 "api_response": result,
                 "message": f"'{deployment_name}' deployment image'ı '{image}' olarak güncellendi"
@@ -268,6 +269,6 @@ class DeploymentAPITools:
                 "message": f"'{deployment_name}' deployment image güncellenemedi: {str(e)}",
                 "deployment_name": deployment_name,
                 "namespace": namespace,
-                "cluster_id": cluster_id,
+                "cluster_id": self.active_cluster_id,
                 "requested_image": image
             }

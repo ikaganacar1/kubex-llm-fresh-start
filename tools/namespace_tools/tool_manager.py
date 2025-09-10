@@ -3,9 +3,10 @@ from typing import Dict, Any
 class NamespaceToolManager:
     """Namespace tool'larını yönetin API tool manager"""
     
-    def __init__(self):
+    def __init__(self,active_cluster_id="5546027b-a535-406e-aeb5-7e0588d1f6df"):
+        self.active_cluster_id = active_cluster_id
         self.tools = self._define_tools()
-    
+
     def _define_tools(self) -> Dict[str, Any]:
         """Namespace işlemleri için mevcut tool'ları tanımla"""
         return {
@@ -13,15 +14,8 @@ class NamespaceToolManager:
                 "summary": "Belirtilen cluster'daki tüm namespace'leri listeler",
                 "description": "Kubernetes cluster'ındaki tüm namespace'lerin listesini alır",
                 "method": "GET",
-                "path": "/namespaces/{cluster_id}/instant",
+                "path": f"/namespaces/{self.active_cluster_id}/instant",
                 "parameters": [
-                    {
-                        "name": "cluster_id",
-                        "in": "path",
-                        "required": True,
-                        "type": "string",
-                        "description": "Cluster'ın benzersiz kimliği (UUID formatında)"
-                    }
                 ]
             },
             
@@ -29,15 +23,8 @@ class NamespaceToolManager:
                 "summary": "Namespace'lerin pod durumu özet bilgilerini alır",
                 "description": "Her namespace için pod sayıları, durumları ve genel istatistikleri gösterir",
                 "method": "GET", 
-                "path": "/namespaces/summary/{cluster_id}",
+                "path": f"/namespaces/summary/{self.active_cluster_id}",
                 "parameters": [
-                    {
-                        "name": "cluster_id",
-                        "in": "path",
-                        "required": True,
-                        "type": "string",
-                        "description": "Cluster'ın benzersiz kimliği (UUID formatında)"
-                    }
                 ]
             },
             
@@ -54,13 +41,6 @@ class NamespaceToolManager:
                         "type": "string", 
                         "description": "Detayları görüntülenecek namespace'in adı"
                     },
-                    {
-                        "name": "cluster_id",
-                        "in": "query",
-                        "required": True,
-                        "type": "string",
-                        "description": "Cluster'ın benzersiz kimliği (UUID formatında)"
-                    }
                 ]
             }
         }
