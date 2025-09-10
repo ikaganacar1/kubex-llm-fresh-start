@@ -76,7 +76,6 @@ class ToolCallingLLMService:
                 use_history=False  # Tool seçimi için history kullanmayalım
             )
             content = response.get("message", {}).get("content", "{}")
-            print("--- LLM RAW OUTPUT ---\n", content, "\n--- END LLM RAW OUTPUT ---")
 
             # Geliştirilmiş JSON çıkarma mantığı
             json_obj = self._extract_json_from_content(content)

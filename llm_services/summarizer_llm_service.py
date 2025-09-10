@@ -31,8 +31,9 @@ class SummarizerLLMService:
     def summarize_stream(self, tool_result: Any, original_request: str, agent_category: str) -> Generator[str, None, None]:
         """LLM'den bir araç sonucunu akış olarak özetlemesini ister."""
         summary_prompt = self._build_summary_prompt(tool_result, original_request)
-        
+        print("\n" + "="*50)
         print(f"[{agent_category}] Araç sonucu için LLM'den özet isteniyor (orijinal istek: {original_request[:50]}...)")
+        print("="*50 + "\n")
 
         # chat_stream metodu doğrudan user_prompt'u işler, system_prompt ayrı bir parametre olarak verilmeyebilir
         # Bu yüzden tüm prompt'u tek bir string olarak gönderiyoruz.

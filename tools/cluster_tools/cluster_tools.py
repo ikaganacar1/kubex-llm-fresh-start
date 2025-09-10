@@ -17,6 +17,7 @@ class ClusterAPITools:
         """Sistemde kayıtlı tüm cluster'ları listeler."""
         try:
             url = f"{self.base_url}/clusters"
+            
             print(f"[ClusterAPI] Cluster listesi alınıyor: {url}")
             
             response = self.session.get(url, timeout=15)

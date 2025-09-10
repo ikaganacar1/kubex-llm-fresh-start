@@ -147,12 +147,72 @@ with st.sidebar:
                         for i, ctx in enumerate(agent.conversation_context[-3:]):
                             st.caption(f"**Etkileşim {i+1}:** User: {ctx['user'][:50]}...")
 
-        # Mevcut kategoriler
-        categories = st.session_state.agent_manager.get_available_categories()
-        st.subheader("📂 Mevcut Agent Kategorileri")
-        for category in categories:
-            agent = st.session_state.agent_manager.agents[category]
-            st.caption(f"• **{agent.category}**: {agent.description}")
+        if st.session_state.agent_manager.current_agent:
+            st.divider()
+            st.subheader("🔧 Aktif Araçlar")
+            current_agent = st.session_state.agent_manager.current_agent
+            
+            # Agent kategorisi göster
+            st.info(f"**Aktif Agent:** {current_agent.category}")
+            
+            # Araçları göster
+            tools = current_agent.get_tools()
+            
+            # Accordion ile her kategorinin araçlarını göster
+            with st.expander(f"📋 {current_agent.category} Araçları ({len(tools)})", expanded=False):
+                for tool_name, tool_info in tools.items():
+                    # Araç adı ve kısa açıklama
+                    st.caption(f"**`{tool_name}`**")
+                    summary = tool_info.get('summary', 'Açıklama yok')
+                    # Özeti kısalt
+                    if len(summary) > 80:
+                        summary = summary[:77] + "..."
+                    st.write(f"↳ {summary}")
+                    
+                    # Parametreler varsa göster
+                    params = tool_info.get('parameters', [])
+                    if params:
+                        required_params = [p['name'] for p in params if p.get('required')]
+                        optional_params = [p['name'] for p in params if not p.get('required') and p.get('name') != 'cluster_id']
+                        
+                        param_text = ""
+                        if required_params:
+                            param_text += f"**Gerekli:** {', '.join(required_params)}"
+                        if optional_params:
+                            if param_text:
+                                param_text += " | "
+                            param_text += f"*Opsiyonel:* {', '.join(optional_params)}"
+                        
+                        if param_text:
+                            st.write(f"  📝 {param_text}")
+                    
+                    st.write("---")
+        
+        elif st.session_state.connected:
+            st.divider()
+            st.subheader("🏠 Mevcut Kategoriler")
+            
+            # Tüm kategorileri kısa göster
+            categories = st.session_state.agent_manager.get_available_categories()
+            for category in categories:
+                agent = st.session_state.agent_manager.agents[category]
+                tool_count = len(agent.get_tools())
+                
+                # Emoji mapping
+                emoji_map = {
+                    "cluster": "🖥️",
+                    "namespace": "📦", 
+                    "deployment": "🚀",
+                    "repository": "📚"
+                }
+                emoji = emoji_map.get(category, "🔧")
+                
+                st.write(f"{emoji} **{agent.category}** ({tool_count} araç)")
+                
+                # Tüm araçları listele
+                tools = list(agent.get_tools().keys())
+                for tool in tools:
+                    st.caption(f"  • `{tool}`")
         
         st.divider()
         col1, col2 = st.columns(2)

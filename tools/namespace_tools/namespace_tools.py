@@ -107,7 +107,7 @@ class NamespaceAPITools:
             
             response = self.session.get(url, params=params, timeout=30)
             response.raise_for_status()
-            
+            print(f"[NamespaceAPI] response: {response}")
             namespace_detail = response.json()
             
             return {

@@ -35,7 +35,9 @@ class ClusterAgent(BaseAgent):
     
     def execute_tool(self, tool_name: str, parameters: Dict[str, Any], original_request: str = None) -> Generator[str, None, None]:
         """Cluster aracını çalıştırır - iyileştirilmiş context ile"""
-        logger.info(f"[{self.category}] Araç çalıştırılıyor: '{tool_name}', Parametreler: {parameters}")
+        print("\n" + "="*50)
+        print(f"[{self.category}] Araç çalıştırılıyor: '{tool_name}', Parametreler: {parameters}")
+        print("="*50 + "\n")
         
         # Original request'i güncelle
         if original_request:
@@ -50,16 +52,13 @@ class ClusterAgent(BaseAgent):
         try:
             result = tool_function(**parameters)
             
-            # YENI: Tool result'u context ile birlikte summarize et
             response_generator = self._summarize_result_for_user(result, self.last_user_request)
             
-            # Response'u collect et ve context'e ekle
             full_response = ""
             for chunk in response_generator:
                 full_response += chunk
                 yield chunk
             
-            # YENI: Tool execution'ı conversation context'e ekle
             if self.last_user_request:
                 self.add_to_conversation_context(self.last_user_request, full_response)
                 

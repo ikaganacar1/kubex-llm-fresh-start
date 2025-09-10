@@ -37,8 +37,9 @@ class DeploymentAgent(BaseAgent):
     
     def execute_tool(self, tool_name: str, parameters: Dict[str, Any], original_request: str = None) -> Generator[str, None, None]:
         """Namespace aracını çalıştırır - iyileştirilmiş context ile"""
-        logger.info(f"[{self.category}] Araç çalıştırılıyor: '{tool_name}', Parametreler: {parameters}")
-        
+        print("\n" + "="*50)
+        print(f"[{self.category}] Araç çalıştırılıyor: '{tool_name}', Parametreler: {parameters}")
+        print("="*50 + "\n")        
         # Original request'i güncelle
         if original_request:
             self.last_user_request = original_request
