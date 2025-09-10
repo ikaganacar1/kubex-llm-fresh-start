@@ -1,6 +1,6 @@
 from typing import Dict, Any, Generator, Optional
 from base_agent import BaseAgent
-from tools.cluster_tools.tool_manager import ToolManager
+from tools.cluster_tools.tool_manager import ClusterToolManager
 from tools.cluster_tools.cluster_tools import ClusterAPITools
 import logging
 
@@ -17,7 +17,7 @@ class ClusterAgent(BaseAgent):
             manager=manager # Manager'ı BaseAgent'a aktar
         )
         self.active_cluster_id = active_cluster_id
-        self.tool_manager = ToolManager(active_cluster_id = active_cluster_id)
+        self.tool_manager = ClusterToolManager(active_cluster_id = active_cluster_id)
         base_url = getattr(client, 'base_url', 'http://10.67.67.195:8000')
         self.cluster_api = ClusterAPITools(base_url=base_url, active_cluster_id = active_cluster_id)
 

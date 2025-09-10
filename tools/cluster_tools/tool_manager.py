@@ -1,172 +1,90 @@
-import yaml
-from typing import Dict, Any, List
+from typing import Dict, Any
 
-# Kullanıcı tarafından sağlanan OpenAPI spesifikasyonu
-# Gerçek bir uygulamada bu bir dosyadan okunabilir.
-OPENAPI_SPEC_YAML = """
-openapi: 3.0.0
-info:
-  title: KUBEX Cluster API
-  version: 1.0.0
-paths:
-  /clusters:
-    get:
-      tags: [Clusters]
-      summary: Mevcut tüm cluster'ları listeler.
-      description: Index
-      operationId: list_clusters
-      responses: {'200': {description: 'Cluster listesi.'}}
-    post:
-      tags: [Clusters]
-      summary: Yeni bir cluster oluşturur.
-      description: Create
-      operationId: create_cluster
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [name] # Body içinde hangi parametrenin zorunlu olduğunu belirtiyoruz
-              properties:
-                name: {type: string, example: 'Faz1 Cluster', description: 'Oluşturulacak cluster için benzersiz bir isim.'}
-      responses: {'200': {description: 'Oluşturulan cluster.'}}
-  /clusters/{cluster_id}:
-    get:
-      tags: [Clusters]
-      summary: Belirli bir cluster'ın detaylarını gösterir.
-      description: Show
-      operationId: get_cluster_details
-      parameters:
-        - name: cluster_id
-          in: path
-          required: true
-          schema: {type: string}
-          description: Detayları gösterilecek cluster'ın ID'si.
-      responses: {'200': {description: 'Cluster detayları.'}}
-    patch:
-      tags: [Clusters]
-      summary: Bir cluster'ı günceller (örneğin kubeconfig ekler).
-      description: Update
-      operationId: update_cluster
-      parameters:
-        - name: cluster_id
-          in: path
-          required: true
-          schema: {type: string}
-          description: Güncellenecek cluster'ın ID'si.
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                kubeconfigs: {type: array, items: {type: object}, description: 'Cluster''a eklenecek Kubeconfig dosyalarının listesi.'}
-      responses: {'200': {description: 'Güncellenmiş cluster.'}}
-  /clusters/summary/{cluster_id}:
-    get:
-      tags: [Clusters]
-      summary: Bir cluster'ın özet kaynak bilgilerini (node, deployment sayısı vb.) getirir.
-      description: Summary
-      operationId: get_cluster_summary
-      parameters:
-        - name: cluster_id
-          in: path
-          required: true
-          schema: {type: string}
-          description: Özet bilgisi alınacak cluster'ın ID'si.
-      responses: {'200': {description: 'Cluster özeti.'}}
-"""
+class ClusterToolManager:
+    """Cluster araçlarını yöneten API tool manager"""
 
-class ToolManager:
-    def __init__(self,active_cluster_id):
-        self.spec = yaml.safe_load(OPENAPI_SPEC_YAML)
-        self.tools = self._parse_spec()
+    def __init__(self, active_cluster_id: str):
+        """
+        active_cluster_id: Üzerinde işlem yapılacak olan aktif cluster'ın ID'si.
+                           Bu ID, path'lerdeki {cluster_id} yerine otomatik olarak kullanılır.
+        """
+        self.active_cluster_id = active_cluster_id
+        self.tools = self._define_tools()
 
-    def _parse_spec(self) -> Dict[str, Any]:
-        """OpenAPI spek'ini ayrıştırarak araç sözlüğü oluşturur."""
-        tools = {}
-        paths = self.spec.get("paths", {})
-        for path, methods in paths.items():
-            for method, details in methods.items():
-                if "operationId" in details:
-                    op_id = details["operationId"]
-                    tools[op_id] = {
-                        "summary": details.get("summary", "No summary available."),
-                        "method": method.upper(),
-                        "path": path,
-                        "parameters": self._get_params(details)
-                    }
-        return tools
-
-    def _get_params(self, details: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Bir operasyon için gerekli parametreleri ve detaylarını çıkarır."""
-        params = []
-        # Path, query, etc. parametreleri
-        if "parameters" in details:
-            for param in details["parameters"]:
-                params.append({
-                    "name": param["name"],
-                    "in": param["in"],
-                    "required": param.get("required", False),
-                    "type": param.get("schema", {}).get("type", "string"),
-                    "description": param.get("description", "")
-                })
-        # requestBody içindeki parametreler
-        if "requestBody" in details:
-            schema = details["requestBody"]["content"]["application/json"]["schema"]
-            if schema.get("type") == "object":
-                required_props = schema.get("required", [])
-                for prop_name, prop_details in schema.get("properties", {}).items():
-                    params.append({
-                        "name": prop_name,
+    def _define_tools(self) -> Dict[str, Any]:
+        """Cluster işlemleri için mevcut araçları manuel olarak ve detaylı bir şekilde tanımlar."""
+        return {
+            "list_clusters": {
+                "summary": "Sistemde kayıtlı olan tüm Kubernetes cluster'larını listeler.",
+                "description": (
+                    "Bu araç, kullanıcının erişebileceği, sisteme daha önceden tanımlanmış tüm Kubernetes "
+                    "cluster'larının bir listesini döndürür. Her cluster için isim ve ID gibi temel bilgileri içerir. "
+                    "Kullanıcı 'Hangi cluster'lar var?' veya 'Mevcut cluster'ları göster' gibi bir talepte "
+                    "bulunduğunda bu araç kullanılmalıdır."
+                ),
+                "method": "GET",
+                "path": "/clusters",
+                "parameters": []
+            },
+            "create_cluster": {
+                "summary": "Sisteme yeni bir Kubernetes cluster'ı kaydı oluşturur.",
+                "description": (
+                    "Bu araç, yönetilecek yeni bir Kubernetes cluster'ı için sistemde bir kayıt oluşturur. "
+                    "Bu işlem fiziksel olarak yeni bir cluster kurmaz, sadece mevcut bir cluster'ın yönetilebilmesi "
+                    "için bir 'tanım' ekler. Örneğin, 'Faz1 adında yeni bir cluster ekle' talebi için kullanılır."
+                ),
+                "method": "POST",
+                "path": "/clusters",
+                "parameters": [
+                    {
+                        "name": "name",
                         "in": "body",
-                        "required": prop_name in required_props,
-                        "type": prop_details.get("type", "string"),
-                        "description": prop_details.get("description", "")
-                    })
-        return params
-
-    def get_tool(self, name: str) -> Dict[str, Any]:
-        """Belirtilen isimdeki aracı döndürür."""
-        return self.tools.get(name)
-
-    def get_tools_for_llm(self) -> List[Dict[str, Any]]:
-        """
-        Araçları, LLM'in fonksiyon çağırma formatına uygun bir listeye dönüştürür.
-        """
-        formatted_tools = []
-        for name, details in self.tools.items():
-            properties = {}
-            required = []
-            
-            for param in details["parameters"]:
-                # Parametreler için özellikler sözlüğünü oluştur
-                properties[param["name"]] = {
-                    "type": param.get("type", "string"),
-                    "description": param.get("description", f"{param['name']} parametresi.")
-                }
-                # Zorunlu parametreleri listeye ekle
-                if param.get("required"):
-                    required.append(param["name"])
-            
-            # Fonksiyon tanımını oluştur
-            function_def = {
-                "type": "function",
-                "function": {
-                    "name": name,
-                    "description": details["summary"],
-                    "parameters": {
-                        "type": "object",
-                        "properties": properties,
-                    },
-                },
+                        "required": True,
+                        "type": "string",
+                        "description": "Oluşturulacak cluster kaydı için benzersiz ve açıklayıcı bir isim. Örneğin: 'production-cluster'."
+                    }
+                ]
+            },
+            "get_cluster_details": {
+                "summary": "Aktif olan cluster'ın yapılandırma ve kimlik detaylarını gösterir.",
+                "description": (
+                    "Bu araç, şu anda aktif olarak seçili olan cluster'ın kayıt bilgilerini getirir. Bu bilgiler "
+                    "arasında cluster'ın adı, ID'si, oluşturulma tarihi gibi statik veriler bulunur. Cluster'ın "
+                    "içindeki canlı kaynakları (pod, node sayısı vb.) görmek için 'get_cluster_summary' aracı kullanılmalıdır."
+                ),
+                "method": "GET",
+                "path": f"/clusters/{self.active_cluster_id}",
+                "parameters": []
+            },
+            "get_cluster_summary": {
+                "summary": "Aktif cluster'ın canlı kaynak kullanım özetini (node, pod, deployment sayısı) getirir.",
+                "description": (
+                    "Bu araç, aktif olan cluster'a bağlanarak anlık kaynak durumunu özetler. Döndürdüğü bilgiler "
+                    "arasında toplam node sayısı, çalışan/bekleyen pod sayısı, deployment ve service sayıları gibi "
+                    "canlı metrikler bulunur. Cluster'ın genel sağlık durumunu ve yoğunluğunu anlamak için kullanılır. "
+                    "Örneğin, 'aktif cluster'ın durumu nasıl?' veya 'cluster'daki pod sayılarını özetle'."
+                ),
+                "method": "GET",
+                "path": f"/clusters/summary/{self.active_cluster_id}",
+                "parameters": []
+            },
+            "update_cluster": {
+                "summary": "Aktif cluster'ın bağlantı bilgilerini (kubeconfig) günceller.",
+                "description": (
+                    "Bu araç, aktif olan cluster'a erişim için gerekli olan Kubeconfig dosyasını veya dosyalarını "
+                    "sisteme eklemek/güncellemek için kullanılır. Cluster'a bağlantı kurulamadığında veya bağlantı "
+                    "bilgileri değiştiğinde bu araç kullanılır. Örneğin, 'aktif cluster için yeni kubeconfig ekle'."
+                ),
+                "method": "PATCH",
+                "path": f"/clusters/{self.active_cluster_id}",
+                "parameters": [
+                    {
+                        "name": "kubeconfigs",
+                        "in": "body",
+                        "required": True,
+                        "type": "array",
+                        "description": "Cluster'a eklenecek Kubeconfig dosyalarının içeriğini içeren bir liste."
+                    }
+                ]
             }
-
-            # Eğer zorunlu parametre varsa, 'required' anahtarını ekle
-            if required:
-                function_def["function"]["parameters"]["required"] = required
-                
-            formatted_tools.append(function_def)
-            
-        return formatted_tools
-
+        }

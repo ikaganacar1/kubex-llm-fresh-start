@@ -75,17 +75,14 @@ with st.sidebar:
                 try:
                     clusters_raw = st.session_state.agent_manager.get_cluster_list_for_ui()
                     
-                    processed_list = []
-                    if isinstance(clusters_raw, dict):
-                        # API yanıtı bir sözlük ise, 'records' anahtarını kontrol et
-                        if "records" in clusters_raw and isinstance(clusters_raw.get("records"), list):
-                            processed_list = clusters_raw["records"]
-                        else:
-                            logger.warning(f"API yanıtı sözlük formatında ancak 'records' anahtarında liste bulunamadı. Anahtarlar: {clusters_raw.keys()}")
-                    elif isinstance(clusters_raw, list):
-                        processed_list = clusters_raw # Doğrudan liste gelme ihtimaline karşı fallback
                     
-                    st.session_state.cluster_list_data = processed_list
+                    if isinstance(clusters_raw, list):
+                        st.session_state.cluster_list_data = clusters_raw
+                    else:
+                        st.session_state.cluster_list_data = []
+                        logger.warning("get_cluster_list_for_ui fonksiyonundan beklenen liste formatında veri alınamadı.")
+
+
 
                 except Exception as e:
                     logger.error(f"Cluster listesi alınırken veya işlenirken hata oluştu: {e}")

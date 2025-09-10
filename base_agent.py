@@ -34,7 +34,6 @@ class BaseAgent(ABC):
             param_list = []
             for p in details.get("parameters", []):
                 param_name = p.get('name', 'param')
-                # Otomatik enjekte edilen parametreleri prompt'ta gizle veya işaretle
                 if param_name != "cluster_id":
                     param_list.append(f"{param_name} ({p.get('in', 'N/A')})")
 
@@ -50,30 +49,43 @@ class BaseAgent(ABC):
         if self.conversation_context:
             context_info = f"\n\n### SON SOHBET OZETI ###\n{self._get_conversation_summary()}\n"
 
-        # --- YENİ İYİLEŞTİRİLMİŞ PROMPT ---
+        # --- YENİ VE DAHA NET PROMPT ---
         return (
-            f"### ROL VE UZMANLIK ALANI ###\n"
-            f"Sen {self.category} konusunda uzman bir asistansın. Görevin, kullanıcının isteğini analiz etmek, "
-            f"bu isteği gerçekleştirmek için aşağıdaki araçlardan en uygun olanını seçmek ve çalıştırmak için gerekli tüm parametreleri toplamaktır.\n\n"
-            f"### ARAÇ SETİ ({self.category}) ###\n{tools_prompt}\n\n"
-            f"{context_info}"
-            "### BAĞLAM VE PARAMETRE YÖNETİMİ KURALLARI ###\n"
-            "1. **Öncelikli Görev: Eksik Parametre Toplama:**\n"
-            "   - Eğer bir araç seçilmişse (`waiting_for_parameters = True`) ve parametreleri eksikse, TARTIŞMASIZ önceliğin bu eksik parametreleri kullanıcıdan istemektir.\n"
-            "   - Kullanıcının yeni mesajını, bu eksik parametreleri doldurmak için bir yanıt olarak yorumla.\n"
-            "   - Ancak, kullanıcı yeni mesajında açıkça ve tamamen farklı bir konuya geçerse, bu kuralı devre dışı bırak ve yeni isteği analiz et.\n"
-            "2. **Otomatik Bağlam Enjeksiyonu (ÇOK ÖNEMLİ):**\n"
-            "   - `cluster_id` parametresi, sistem tarafından global bağlamdan otomatik olarak sağlanmaktadır.\n"
-            "   - Kullanıcıya `cluster_id` Sorma. Sadece diğer (örn: `namespace`, `deployment_name`) eksik parametrelere odaklan.\n"
-            "3. **Sohbet Modu:** Eğer kullanıcının isteği listedeki araçlarla gerçekleştirilemiyorsa veya kullanıcı sadece sohbet etmek istiyorsa, `tool_name: \"chat\"` kullan.\n\n"
-            "### ÇIKIŞ FORMATI ###\n"
-            "Analiz sonucunda YALNIZCA bir JSON objesi döndür:\n\n"
-            "1. Arac Kullanimi:\n"
-            '{"tool_name": "kullanilacak_arac_adi", "parameters": {"parametre_adi": "deger"}}\n\n'
-            "2. Sohbet/Yanit:\n"
-            '{"tool_name": "chat", "parameters": {"response": "kullaniciya_verilecek_cevap"}}\n\n'
-            "Yanitinda JSON objesi disinda KESINLIKLE hicbir metin veya aciklama olmasin."
+            f"### KİMLİK VE UZMANLIK ALANI ###\n"
+            f"Sen, KUBEX platformunda **{self.category}** konusunda uzmanlaşmış bir asistansın. "
+            "Temel görevin, kullanıcı taleplerini analiz ederek sahip olduğun araç setini en etkili şekilde kullanmak "
+            "ve istenen eylemi başarıyla tamamlamaktır.\n\n"
+            f"### ARAÇ SETİ: {self.category} ###\n{tools_prompt}\n"
+            f"{context_info}\n"
+            "### GÖREV AKIŞI VE KURALLAR ###\n"
+            "1. **Talep Analizi:** Kullanıcının talebini dikkatle analiz et. Talebin bir eylem (listeleme, oluşturma, silme vb.) içerip içermediğini belirle.\n"
+            "2. **Araç Önceliği:** Eğer kullanıcının talebi, yukarıdaki ARAÇ SETİ'nde listelenen bir aracın açıklamasıyla eşleşiyorsa, o aracı kullanmak **ZORUNLUSUN**.\n"
+            "3. **Sohbet İstisnası:** **SADECE** ve **SADECE** taleple eşleşen bir araç yoksa veya kullanıcı genel bir sohbet (selam, nasılsın vb.) başlatıyorsa 'chat' aracını kullan.\n\n"
+            "### ÇIKTI FORMATI ###\n"
+            "Analizinin sonucunu, **SADECE** aşağıda belirtilen formatta bir JSON objesi olarak döndür. "
+            "Yanıtına başka hiçbir metin ekleme.\n\n"
+            "1. **Bir Araç Kullanılacaksa:**\n"
+            "```json\n"
+            "{\n"
+            '  "tool_name": "kullanilacak_aracin_adi",\n'
+            '  "parameters": {}\n'
+            "}\n"
+            "```\n\n"
+            "2. **Sohbet Yanıtı Verilecekse:**\n"
+            "```json\n"
+            "{\n"
+            '  "tool_name": "chat",\n'
+            '  "parameters": {\n'
+            '    "response": "Kullanıcıya verilecek net ve yardımcı cevap."\n'
+            "  }\n"
+            "}\n"
+            "```\n\n"
+            "### KESİN KURAL ###\n"
+            "Kullanıcının talebi bir eylem içeriyorsa ve bu eylem araç setindeki bir araçla yapılabiliyorsa, 'chat' kullanmak **YASAKTIR**. "
+            "Doğru aracı seçip JSON çıktısını üret."
         )
+    
+
     def reset_context(self):
         """Bağlamı sıfırla"""
         self.waiting_for_parameters = False
@@ -83,7 +95,6 @@ class BaseAgent(ABC):
         self.last_user_request = None
     
     def add_to_conversation_context(self, user_message: str, assistant_response: str):
-        """YENI: Conversation context'e yeni etkileşim ekle"""
         self.conversation_context.append({
             "user": user_message,
             "assistant": assistant_response,
@@ -95,7 +106,6 @@ class BaseAgent(ABC):
             self.conversation_context = self.conversation_context[-5:]
     
     def _get_conversation_summary(self) -> str:
-        """YENI: Conversation context'in özetini döndür"""
         if not self.conversation_context:
             return "Henuz bir sohbet gecmisi yok."
             
@@ -107,10 +117,7 @@ class BaseAgent(ABC):
         
         return "\n".join(summary_parts)
     
-    def process_request(self, prompt: str) -> Union[Dict[str, Any], Generator[str, None, None]]:
-        """İsteği işle - iyileştirilmiş memory management ve otomatik enjeksiyon ile"""
-        print(f"[{self.category}] İstek işleniyor: {prompt}")
-        
+    def process_request(self, prompt: str) -> Union[Dict[str, Any], Generator[str, None, None]]:        
         self.last_user_request = prompt
         
         llm_decision = self._call_llm_for_tool_selection(prompt, use_history=True)
@@ -202,9 +209,20 @@ class BaseAgent(ABC):
         self.current_tool_context = None
         return self.execute_tool(tool_name, all_params, original_request=original_request)
     
+    # kubex-llm-fresh-start/base_agent.py
+
     def _call_llm_for_tool_selection(self, prompt: str, use_history: bool = True) -> Dict[str, Any]:
         """LLM'den araç seçimi iste - iyileştirilmiş context ile"""
         try:
+            system_prompt = self.get_system_prompt() # Sistem komutunu al
+            
+            # --- YENİ LOGLAMA ---
+            print("\n" + "="*50)
+            #print(f"[{self.category}] Agent'a Gönderilen Sistem Komutu:\n{system_prompt}")
+            print(f"[{self.category}] Kullanıcı İsteği: {prompt}")
+            print("="*50 + "\n")
+            # --- LOGLAMA SONU ---
+
             if self.waiting_for_parameters and self.current_tool_context and use_history:
                 context_reminder = (
                     f"BAGLAM: Daha once '{self.current_tool_context['tool_name']}' aracini sectim. "
@@ -213,11 +231,13 @@ class BaseAgent(ABC):
                     f"Kullanicinin yeni mesaji bu parametreleri saglamaya yonelik olmali.\n\n"
                     f"Kullanici mesaji: {prompt}"
                 )
-                response = self.client.chat(user_prompt=context_reminder, system_prompt=self.get_system_prompt(), use_history=True)
+                response = self.client.chat(user_prompt=context_reminder, system_prompt=system_prompt, use_history=True)
             else:
-                response = self.client.chat(user_prompt=prompt, system_prompt=self.get_system_prompt(), use_history=use_history)
+                response = self.client.chat(user_prompt=prompt, system_prompt=system_prompt, use_history=use_history)
             
             content = response.get("message", {}).get("content", "{}")
+
+
             first_brace_index = content.find('{')
             if first_brace_index == -1:
                 raise ValueError("JSON bulunamadı")
@@ -227,8 +247,7 @@ class BaseAgent(ABC):
             return decoded_json
         except Exception as e:
             print(f"[{self.category}] LLM'den geçerli JSON alınamadı: {e}")
-            return {"tool_name": "chat", "parameters": {"response": "Ne istediginizi anlayamadim, lutfen daha net bir sekilde ifade eder misiniz?"}}
-    
+            return {"tool_name": "chat", "parameters": {"response": "Ne istediginizi anlayamadim, lutfen daha net bir sekilde ifade eder misiniz?"}}    
     def _create_error_response(self, error_message: str) -> Generator[str, None, None]:
         """Hata yanıtı oluştur"""
         # YENI: Error'u da context'e ekle

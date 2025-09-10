@@ -51,31 +51,42 @@ class AgentManager:
         if self.global_conversation_context:
             context_info = f"\n\n### SON SOHBET OZETI ###\n{self._get_global_context_summary()}\n"
 
-        # --- YENİ İYİLEŞTİRİLMİŞ PROMPT ---
+        # --- İYİLEŞTİRİLMİŞ PROMPT ---
         return (
-            "### ROL VE GÖREV ###\n"
-            "Sen, KUBEX sisteminin Merkezi Komut Yönlendiricisisin (Triage Expert). Ana görevin, kullanıcının isteğini analiz ederek "
-            "bu isteği yerine getirebilecek en uygun uzmanlık kategorisini (agent) belirlemektir.\n"
-
-            "Görevin sadece anahtar kelimelere bakmak değil, kullanıcının asıl niyetini ve ihtiyaç duyduğu eylem türünü anlamaktır.\n\n"
-            f"### MEVCUT UZMANLIK KATEGORİLERİ (AGENTLAR) ###\n{agents_text}\n"
+            "### GÖREV VE KİMLİK ###\n"
+            "Sen, KUBEX Kubernetes Yönetim Platformu'nun ana yönlendiricisi olan bir \"Triage Uzmanı\"sın. "
+            "Temel görevin, kullanıcıdan gelen talebi derinlemesine analiz ederek, bu talebi en doğru şekilde karşılayacak "
+            "uzmanlık alanını (agent) belirlemektir. Sadece anahtar kelimelere odaklanmak yerine, kullanıcının asıl amacını "
+            "ve gerçekleştirmek istediği eylemin doğasını anlamalısın.\n\n"
+            f"### UZMANLIK ALANLARI (AGENT'LAR) ###\n{agents_text}\n"
             f"{context_info}"
-            "### KARAR VERME KURALLARI ###\n"
-            "1. **Niyet Analizi:** Kullanıcının isteğini dikkatlice incele. Kullanıcı bir kaynağı \"görmek/listelemek\" mi, "
-            "\"oluşturmak/değiştirmek\" mi yoksa \"silmek\" mi istiyor? İsteğin odağındaki kaynak nedir (Cluster, Deployment, Namespace, Repository)?\n"
-            "2. **Bağlam Takibi (Context Continuity):**\n"
-            "   - Eğer sohbet geçmişi (\"SON SOHBET OZETI\") incelendiğinde, kullanıcının son etkileşimin devamı niteliğinde bir soru sorduğu açıksa "
-            "(örn: \"Peki o deployment'ı ölçekle\"), yönlendirmeyi mevcut aktif agent üzerinden devam ettir. Yeni bir kategori seçimi yapma.\n"
-            "   - Eğer kullanıcı açıkça konuyu değiştirirse (örn: \"Tamam, şimdi de repoları listeleyelim\"), yeni konuya uygun kategoriyi seç.\n"
-            "3. **Chat Modu Kullanımı:** Eğer istek teknik bir Kubernetes işlemi (CRUD - Create, Read, Update, Delete) değilse VEYA "
-            "belirsiz bir selamlama/soru ise (örn: \"Merhaba\", \"Ne yapabiliyorsun?\"), \"chat\" kategorisini seç.\n\n"
-            "### ÇIKIŞ FORMATI ###\n"
-            "Kararını ve gerekçeni (reasoning) içeren, YALNIZCA bir JSON objesi döndür:\n\n"
-            "1. Belirli bir kategori seçeceksen:\n"
-            '{"agent": "kategori_adi", "reasoning": "Kullanıcı deploymentları listelemek istediği için \'deployment\' kategorisi seçildi."}\n\n'
-            "2. Genel sohbet edeceksen:\n"
-            '{"agent": "chat", "reasoning": "Kullanıcı genel bir soru sordu, spesifik bir eylem talebi yok.", "response": "Ben bir Kubernetes yardımcısıyım ve yalnızca bu konuda çalışabilirim. Size nasıl yardımcı olabilirim?"}\n\n'
-            "Yanıtında JSON objesi dışında KESİNLİKLE hiçbir metin veya açıklama olmasın."
+            "### KARAR VERME SÜRECİ ###\n"
+            "1. **Amacı Anlama:** Kullanıcının talebini dikkatle incele.\n"
+            "   - **Eylem Türü:** Kullanıcı bir bilgiyi \"görüntülemek\", \"listelemek\" mi istiyor, yoksa bir kaynağı \"oluşturmak\", \"güncellemek\", \"silmek\" veya \"yeniden başlatmak\" gibi bir değişiklik mi yapmak istiyor?\n"
+            "   - **Kaynak Türü:** Talebin merkezindeki ana Kubernetes kaynağı nedir? (örn: Cluster, Deployment, Namespace, Helm Repository).\n"
+            "2. **Sohbet Akışını Değerlendirme (Bağlam):**\n"
+            "   - **Devam Eden Konuşma:** Eğer sohbet geçmişi, kullanıcının bir önceki adıma devam ettiğini gösteriyorsa (örneğin, \"listelediğin deployment'lardan nginx olanı 3 replikaya çıkar\"), mevcut uzmanlık alanını koru. Yeni bir yönlendirme yapma.\n"
+            "   - **Yeni Konu:** Kullanıcı net bir şekilde konuyu değiştiriyorsa (örneğin, \"Teşekkürler, şimdi de namespace'leri listeleyelim\"), talebe uygun yeni bir uzmanlık alanı seç.\n"
+            "3. **Genel Sohbet (Chat) Durumu:**\n"
+            "   - Eğer talep, belirli bir Kubernetes eylemi (CRUD) içermiyorsa veya genel bir selamlama, soru ise (örn: \"Merhaba\", \"Neler yapabilirsin?\"), yönlendirmeyi \"chat\" olarak belirle.\n\n"
+            "### ÇIKTI FORMATI ###\n"
+            "Kararını ve bu kararı alırken yürüttüğün mantığı (`reasoning`) içeren, **SADECE** aşağıdaki formatta bir JSON objesi döndür. "
+            "Yanıtına başka hiçbir metin, açıklama veya karakter ekleme.\n\n"
+            "1. **Uzmanlık Alanı Seçildiğinde:**\n"
+            "```json\n"
+            "{\n"
+            '  "agent": "ilgili_agent_adi",\n'
+            '  "reasoning": "Kullanıcı, mevcut deployment\'ları listelemek istediği için \'deployment\' uzmanlık alanı seçildi. Talep, bir listeleme (read) eylemi içeriyor."\n'
+            "}\n"
+            "```\n\n"
+            "2. **Genel Sohbet Durumunda:**\n"
+            "```json\n"
+            "{\n"
+            '  "agent": "chat",\n'
+            '  "reasoning": "Kullanıcı genel bir selamlama yaptı ve spesifik bir Kubernetes eylemi talep etmedi.",\n'
+            '  "response": "Kullanıcının genel sorusuna veya selamlamasına uygun, sohbetin bağlamını dikkate alan, doğal ve yardımcı bir cevap üret. Cevabın her zaman türkçe olmalı"\n'
+            "}\n"
+            "```"
         )
     
     def _get_global_context_summary(self) -> str:
@@ -304,21 +315,20 @@ class AgentManager:
             api_response = cluster_agent.cluster_api.list_clusters()
 
             if isinstance(api_response, dict):
-                if "records" in api_response and isinstance(api_response.get("records"), list):
-                    return api_response["records"]
+                # 'clusters' anahtarının değerini al
+                clusters_data = api_response.get("clusters")
+                clusters_data = clusters_data["records"]
                 
-                elif "data" in api_response and isinstance(api_response.get("data"), list):
-                    logger.warning("API formatı 'data' anahtarını kullanıyor. Beklenen 'records' idi.")
-                    return api_response["data"]
-                
-                elif "items" in api_response and isinstance(api_response.get("items"), list):
-                    logger.warning("API formatı 'items' anahtarını kullanıyor. Beklenen 'records' idi.")
-                    return api_response["items"]
-                
+                # Değerin bir liste olup olmadığını kontrol et
+                if isinstance(clusters_data, list):
+                    return clusters_data
                 else:
-                    print(f"API yanıtı sözlük formatında ancak beklenen liste anahtarı ('records', 'data', 'items') bulunamadı. Anahtarlar: {api_response.keys()}")
+                    # Daha bilgilendirici hata mesajı
+                    data_type = type(clusters_data).__name__
+                    print(f"HATA: API yanıtındaki 'clusters' anahtarının değeri bir liste değil. Gelen veri tipi: {data_type}.")
                     return []
-
+            
+            # API doğrudan bir liste dönerse diye bu kontrolü koruyalım
             elif isinstance(api_response, list):
                 return api_response
 

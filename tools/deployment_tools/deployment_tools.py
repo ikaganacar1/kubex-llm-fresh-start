@@ -3,6 +3,22 @@ import logging
 from typing import Dict, Any, List
 
 logger = logging.getLogger(__name__)
+def _summarize_deployments(deployments: List[Dict[str, Any]]) -> Dict[str, Any]:
+        summary = {}
+        for d in deployments:
+            namespace = d.get("namespace", "unknown-namespace")
+            if namespace not in summary:
+                summary[namespace] = []
+            
+            status_str = f"{d.get('ready_replicas', 0)}/{d.get('replicas', 1)}"
+            
+            summary[namespace].append({
+                "name": d.get("name"),
+                "type": d.get("type"),
+                "status": status_str,
+                "ready": d.get("available", False)
+            })
+        return summary
 
 class DeploymentAPITools:
     """Kubernetes Deployment API işlemleri için gerçek API tool'ları"""
@@ -11,29 +27,29 @@ class DeploymentAPITools:
         self.base_url = base_url.rstrip('/')
         self.session = requests.Session()
         self.active_cluster_id = active_cluster_id
-
+    
     def list_deployments(self) -> Dict[str, Any]:
-        """Belirtilen cluster'daki tüm deployment'ları listeler"""
         try:
             url = f"{self.base_url}/deployments/{self.active_cluster_id}/instant"
-            print(f"[DeploymentAPI] Deployment listesi alınıyor: {url}")
+            print(f"[DeploymentAPI] Fetching deployment list from: {url}")
             
             response = self.session.get(url, timeout=30)
             response.raise_for_status()
             
-            deployments = response.json()
+            raw_data = response.json()
+
+            summarized_view = _summarize_deployments(raw_data)
             
-            # Deployment'ları analiz et
-            total_deployments = len(deployments)
-            available_deployments = sum(1 for d in deployments if d.get("available", False))
+            total_count = len(raw_data)
+            available_count = sum(1 for d in raw_data if d.get("available", False))
             
             return {
                 "status": "success",
                 "cluster_id": self.active_cluster_id,
-                "deployment_count": total_deployments,
-                "available_deployments": available_deployments,
-                "deployments": deployments,
-                "message": f"{total_deployments} deployment bulundu, {available_deployments} tanesi hazır durumda"
+                "total_resources": total_count,
+                "ready_resources": available_count,
+                "summary": summarized_view,  # Use the summarized data here
+                "message": f"Toplam {total_count} kaynak bulundu, {available_count} tanesi hazır durumda."
             }
             
         except requests.exceptions.RequestException as e:
