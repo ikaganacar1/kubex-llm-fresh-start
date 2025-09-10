@@ -39,7 +39,7 @@ class BaseAgent(ABC):
 
             params_str = ", ".join(param_list) if param_list else "Yok"
             tools_description_lines.append(
-                f"- Arac Adi: '{name}'\n"
+                f"  - Arac Adi: '{name}'\n"
                 f"  - Aciklama: {details.get('summary', '')}\n"
                 f"  - Gerekli Parametreler: {params_str}"
             )

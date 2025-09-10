@@ -26,7 +26,7 @@ class ClusterAgent(BaseAgent):
         self.tool_manager.active_cluster_id = cluster_id
         self.cluster_api.active_cluster_id = cluster_id
         # Tool'ları yeniden oluşturmaya gerek yok, çünkü path'ler dinamik olarak ID alıyor.
-        print(f"[{self.category}] Active cluster updated to: {cluster_id}")
+        print(f"[{self.category}] Active cluster updated.")
 
         
     def get_tools(self) -> Dict[str, Any]:

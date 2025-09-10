@@ -117,8 +117,9 @@ class AgentManager:
             self.global_conversation_context = self.global_conversation_context[-10:]
     
     def route_request(self, prompt: str) -> Union[Dict[str, Any], Generator[str, None, None]]:
-        """İsteği uygun agent'a yönlendir - iyileştirilmiş context yönetimi ile"""
+        print("\n" + "="*50)
         print(f"[Router] İstek yönlendiriliyor: {prompt}")
+        print("="*50 + "\n")
         
         # Eğer aktif bir agent var ve parametre bekleniyorsa, o agent'a devam et
         if self.current_agent and self.current_agent.waiting_for_parameters:
@@ -255,8 +256,9 @@ class AgentManager:
         
         # YENI: Client history'yi tamamen temizle
         self.client.clear_chat_history()
-        
+        print("\n" + "="*50)
         print("[Router] Tüm agent bağlamları ve global context sıfırlandı")
+        print("="*50 + "\n")
     
     def soft_reset_contexts(self):
         """YENI: Soft reset - sadece current operations'ı sıfırla, conversation memory'yi koru"""
@@ -265,7 +267,9 @@ class AgentManager:
             self.current_agent.current_tool_context = None
         
         self.waiting_for_parameters = False
+        print("\n" + "="*50)
         print("[Router] Soft reset tamamlandı - conversation memory korundu")
+        print("="*50 + "\n")
     
     def get_current_status(self) -> Dict[str, Any]:
         """Mevcut durumu döndür - iyileştirilmiş status bilgisi"""
@@ -296,10 +300,11 @@ class AgentManager:
     def set_active_cluster(self, cluster_id: str, cluster_name: Optional[str] = None):
         """Aktif cluster ID'yi merkezi olarak ayarlar."""
         self.active_cluster_id = cluster_id
+        
         self.active_cluster_name = cluster_name
+        print("\n" + "="*50)
         print(f"[AgentManager] Aktif cluster UI tarafından ayarlandı: ID={cluster_id}, Adı={cluster_name}")
-
-        # YENİ EKLENTİ: Agent'ları güncelle
+        print("="*50 + "\n")
         for agent in self.agents.values():
             if hasattr(agent, 'update_active_cluster'):
                 agent.update_active_cluster(cluster_id)
@@ -315,20 +320,16 @@ class AgentManager:
             api_response = cluster_agent.cluster_api.list_clusters()
 
             if isinstance(api_response, dict):
-                # 'clusters' anahtarının değerini al
                 clusters_data = api_response.get("clusters")
                 clusters_data = clusters_data["records"]
                 
-                # Değerin bir liste olup olmadığını kontrol et
                 if isinstance(clusters_data, list):
                     return clusters_data
                 else:
-                    # Daha bilgilendirici hata mesajı
                     data_type = type(clusters_data).__name__
                     print(f"HATA: API yanıtındaki 'clusters' anahtarının değeri bir liste değil. Gelen veri tipi: {data_type}.")
                     return []
             
-            # API doğrudan bir liste dönerse diye bu kontrolü koruyalım
             elif isinstance(api_response, list):
                 return api_response
 
@@ -338,7 +339,6 @@ class AgentManager:
         
         return []
 
-    # --- YENİ METOD: Otomatik Enjeksiyon İçin ---
     def get_contextual_parameters(self) -> Dict[str, Any]:
         """Diğer agent'ların kullanması için bağlamsal parametreleri döndürür."""
         params = {}

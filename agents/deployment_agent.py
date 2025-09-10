@@ -26,7 +26,7 @@ class DeploymentAgent(BaseAgent):
         self.active_cluster_id = cluster_id
         self.tool_manager = DeploymentToolManager(active_cluster_id=cluster_id)
         self.namespace_api.active_cluster_id = cluster_id
-        print(f"[{self.category}] Active cluster updated to: {cluster_id}")
+        print(f"[{self.category}] Active cluster updated.")
         
 
 
