@@ -43,7 +43,29 @@ def parse_and_display_response(full_response: str):
     if thinking_content:
         with st.expander("Modelin Düşünce Adımları 🧠"):
             st.markdown(f"```\n{thinking_content}\n```")
-
+            
+def stream_with_parse(response_generator):
+    """Streaming generator'ı sararak parse uyumlu hale getirir"""
+    response_container = st.empty()
+    full_response = ""
+    
+    for chunk in response_generator:
+        full_response += chunk
+        
+        # Her chunk'ta sadece ana içeriği göster (think tag'leri gizle)
+        import re
+        display_content = re.sub(r"<think>.*?</think>", "", full_response, flags=re.DOTALL).strip()
+        
+        response_container.empty()
+        with response_container.container():
+            st.markdown(display_content)
+    
+    # Streaming bitince final parse et
+    response_container.empty()
+    with response_container.container():
+        parse_and_display_response(full_response)
+    
+    return full_response
 # --- Kenar Çubuğu (Sidebar) ---
 with st.sidebar:
     st.header("⚙️ Yapılandırma")
@@ -347,22 +369,21 @@ if st.session_state.connected:
                                     pending.get("extracted_params", {}),
                                     cleaned_params
                                 )
-                                full_response_content = st.write_stream(response_generator)
                                 
-                                # Mesajları kaydet
+                                # Streaming with parse
+                                full_response_content = stream_with_parse(response_generator)
+                                
                                 st.session_state.messages.append({
                                     "role": "assistant", 
                                     "content": full_response_content
                                 })
                                 
-                                # Pending action'ı temizle
                                 st.session_state.pending_action = None
                                 st.rerun()
                                 
                             except Exception as e:
                                 st.error(f"İşlem sırasında hata oluştu: {str(e)}")
                                 st.session_state.pending_action = None
-
     # DURUM 2: Normal sohbet girişi
     else:
         # Sadece cluster seçiliyse chat input'u aktif et
@@ -370,32 +391,21 @@ if st.session_state.connected:
         chat_placeholder = "Cluster seçin..." if chat_disabled else "Kubernetes ile ilgili bir soru sorun..."
 
         if prompt := st.chat_input(chat_placeholder, disabled=chat_disabled):
-            # User mesajını ekle
             st.session_state.messages.append({"role": "user", "content": prompt})
             with st.chat_message("user"):
                 st.markdown(prompt)
 
-            # Assistant yanıtını al
             with st.chat_message("assistant"):
                 try:
                     response = st.session_state.agent_manager.route_request(prompt)
 
                     if isinstance(response, dict) and response.get("status") == "needs_parameters":
-                        # Parametre gerekiyor - pending action olarak kaydet
                         st.session_state.pending_action = response
                         st.info("Ek bilgilere ihtiyacım var. Lütfen aşağıdaki formu doldurun.")
                         st.rerun() 
                     else:
-                        # Normal response - stream olarak göster
-                        response_placeholder = st.empty()
-                        full_response_content = ""
-                        
-                        for chunk in response:
-                            full_response_content += chunk
-                            with response_placeholder.container():
-                                parse_and_display_response(full_response_content)
-
-                        # Mesajı kaydet
+                        # Streaming with parse
+                        full_response_content = stream_with_parse(response)
                         st.session_state.messages.append({
                             "role": "assistant", 
                             "content": full_response_content

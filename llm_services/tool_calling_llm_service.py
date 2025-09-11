@@ -42,19 +42,25 @@ class ToolCallingLLMService:
             "- Eksik parametreler için 'chat' kullanma - sistem sonra eksik parametreleri soracak.\n"
             "- Örnek: 'nginx deploymentını 5 pod yap' → scale_deployment aracını seç, replicas=5 ver, deployment_name eksik olsa bile.\n\n"
             "### ÇIKTI FORMATI ###\n"
-            "```json\n"
-            "{\n"
-            '  "tool_name": "secilen_aracin_adi",\n'
-            '  "parameters": {"param1": "deger1", "param2": "deger2"}\n'
-            "}\n"
-            "```\n\n"
-            "### ÖRNEKLER ###\n"
-            "- 'deployment'ları listele' → list_deployments, parameters: {}\n"
-            "- 'nginx deploymentını 3 pod yap' → scale_deployment, parameters: {'replicas': 3}\n"  
-            "- 'kube-system deploymentını yeniden başlat' → redeploy_deployment, parameters: {'namespace': 'kube-system'}\n"
-            "- 'nasılsın?' → chat, parameters: {'response': 'İyiyim, size nasıl yardımcı olabilirim?'}\n\n"
+            "Yanıtını SADECE aşağıdaki JSON formatında ver. Başka hiçbir metin ekleme:\n\n"
+            '{"tool_name": "GERCEK_ARAC_ADI", "parameters": {"parametre_adi": "deger"}}\n\n'
+            "### GERÇEK ARAÇ ÖRNEKLERI ###\n"
+            "- Deployment listesi: get_deployment_config\n"
+            "- Config alma: get_deployment_config  \n"
+            "- Ölçeklendirme: scale_deployment\n"
+            "- Yeniden başlatma: redeploy_deployment\n"
+            "- Namespace bilgisi: show_namespace\n"
+            "- Sohbet: chat\n\n"
+            "### GERÇEK SENARYOLAR ###\n"
+            "Kullanıcı: 'metrics-server deploymentının configini istiyorum'\n"
+            'Yanıt: {"tool_name": "get_deployment_config", "parameters": {"deployment_name": "metrics-server"}}\n\n'
+            "Kullanıcı: 'nginx deploymentını 3 pod yap'\n"
+            'Yanıt: {"tool_name": "scale_deployment", "parameters": {"deployment_name": "nginx", "replicas": 3}}\n\n'
             "### KESİN KURAL ###\n"
-            "Parametre eksikliği nedeniyle 'chat' kullanma. Sistem eksik parametreleri otomatik sorar."
+            "- ASLA 'secilen_aracin_adi' yazma, gerçek araç adını kullan\n"
+            "- ASLA 'param1', 'deger1' yazma, gerçek parametre adlarını kullan\n"
+            "- Parametre eksikliği nedeniyle 'chat' kullanma\n"
+            "- Sadece JSON yanıtı ver, açıklama ekleme"
         )
 
     def select_tool(self, user_prompt: str, agent_category: str, tools: Dict[str, Any], conversation_summary: str, context_reminder: Optional[str] = None) -> Dict[str, Any]:

@@ -283,17 +283,25 @@ class BaseAgent(ABC):
         if not original_request:
             original_request = self.last_user_request or "Bilinmeyen istek"
 
+        #print(f"[DEBUG] Starting summarization for: {original_request[:50]}...")
+        
         response_generator = self.summary_llm_service.summarize_stream(
             tool_result=result,
             original_request=original_request,
             agent_category=self.category
         )
         
-        full_response = "".join(list(response_generator))
+        full_response = ""
+        chunk_count = 0
+        
+        for chunk in response_generator:
+            chunk_count += 1
+            full_response += chunk
+            #print(f"[DEBUG] Streaming chunk {chunk_count}: '{chunk[:30]}...'")
+            yield chunk
             
+        #print(f"[DEBUG] Streaming completed. Total chunks: {chunk_count}, Total length: {len(full_response)}")
+            
+        # Context'e ekleme streaming bittikten sonra
         if original_request:
             self.add_to_conversation_context(original_request, full_response)
-        
-        def stream_wrapper():
-            yield full_response
-        return stream_wrapper()

@@ -1,7 +1,7 @@
 # llm_services/router_llm_service.py
 
 import json
-from typing import Dict, Any
+from typing import Dict, Any,Optional
 
 class RouterLLMService:
     """
@@ -51,22 +51,62 @@ class RouterLLMService:
             response = self.client.chat(
                 user_prompt=user_prompt, 
                 system_prompt=system_prompt, 
-                use_history=True
+                use_history=False  # Router için history kullanma
             )
             content = response.get("message", {}).get("content", "{}")
             
-            first_brace_index = content.find('{')
-            if first_brace_index == -1:
-                raise ValueError("Yanıt içinde JSON objesi bulunamadı.")
+            print(f"[RouterLLMService] Raw LLM Output: {content}")
             
-            json_str = content[first_brace_index:]
-            decoded_json, _ = json.JSONDecoder().raw_decode(json_str)
-            return decoded_json
-            
+            # Geliştirilmiş JSON çıkarma
+            json_result = self._extract_json_safely(content)
+            if json_result:
+                return json_result
+            else:
+                raise ValueError("Geçerli JSON bulunamadı")
+                
         except Exception as e:
             print(f"[RouterLLMService] LLM'den geçerli yanıt alınamadı: {e}")
+            print(f"[RouterLLMService] Raw content: {content if 'content' in locals() else 'N/A'}")
             return {
                 "agent": "chat", 
                 "reasoning": "Routing sırasında bir hata oluştu.",
-                "response": "İsteğinizi şu anda işleyemiyorum, lütfen daha net bir şekilde tekrar dener misiniz?"
+                "response": "İsteğinizi anlayamadım, lütfen daha açık bir şekilde ifade eder misiniz?"
             }
+    
+    def _extract_json_safely(self, content: str) -> Optional[Dict[str, Any]]:
+        """İçerikten JSON objesini güvenli şekilde çıkarır"""
+        import json
+        import re
+        
+        # Method 1: Standard JSON regex patterns
+        json_patterns = [
+            r'\{[^{}]*"agent"[^{}]*\}',     # Single line with agent key
+            r'\{.*?"agent".*?\}',           # Multi-line with agent key  
+            r'\{.*\}',                      # Any JSON object
+        ]
+        
+        for pattern in json_patterns:
+            matches = re.finditer(pattern, content, re.DOTALL | re.IGNORECASE)
+            for match in matches:
+                json_str = match.group(0)
+                try:
+                    decoded_json = json.loads(json_str)
+                    if "agent" in decoded_json:
+                        return decoded_json
+                except json.JSONDecodeError:
+                    continue
+        
+        # Method 2: Manual key extraction
+        agent_match = re.search(r'"agent"\s*:\s*"([^"]+)"', content)
+        reasoning_match = re.search(r'"reasoning"\s*:\s*"([^"]+)"', content)
+        response_match = re.search(r'"response"\s*:\s*"([^"]+)"', content)
+        
+        if agent_match:
+            result = {"agent": agent_match.group(1)}
+            if reasoning_match:
+                result["reasoning"] = reasoning_match.group(1)
+            if response_match:
+                result["response"] = response_match.group(1)
+            return result
+        
+        return None
