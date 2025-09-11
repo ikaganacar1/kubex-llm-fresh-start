@@ -189,22 +189,7 @@ Enable debug mode in the sidebar to see:
 - Update documentation for new features
 - Test with multiple model types
 
-## 📝 License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## 🙏 Acknowledgments
-
-- [Ollama](https://ollama.ai/) for local LLM hosting
-- [Streamlit](https://streamlit.io/) for the web interface framework
-- [Kubernetes](https://kubernetes.io/) for container orchestration
-
-## 📞 Support
-
-For issues and questions:
-1. Check the troubleshooting section above
-2. Review the debug panel output
-3. Open an issue with detailed error information
 4. Include your configuration and model details
 
 ---
