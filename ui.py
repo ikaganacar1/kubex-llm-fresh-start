@@ -70,7 +70,6 @@ def stream_with_parse(response_generator):
 
 def show_welcome_screen():
     """Karşılama ekranı - mevcut araçları ve kategorileri gösterir"""
-    st.markdown("---")
     
     if not st.session_state.connected or not st.session_state.agent_manager:
         st.info("👈 Başlamak için lütfen kenar çubuğundan Ollama sunucusuna bağlanın.")
