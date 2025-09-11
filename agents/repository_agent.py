@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 class RepositoryAgent(BaseAgent):
     """Kubernetes Helm Repository işlemleri için özelleşmiş agent - İyileştirilmiş context yönetimi ile"""
     
-    def __init__(self, client,active_cluster_id, manager: Optional[Any] = None):
+    def __init__(self, client, active_cluster_id, manager: Optional[Any] = None):
         super().__init__(
             client=client,
             category="Helm Repository",
@@ -24,8 +24,10 @@ class RepositoryAgent(BaseAgent):
 
     def update_active_cluster(self, cluster_id: str):
         self.active_cluster_id = cluster_id
-        self.tool_manager = RepositoryToolManager(active_cluster_id=cluster_id)
+        self.tool_manager.active_cluster_id = cluster_id
         self.repository_api.active_cluster_id = cluster_id
+        # Update tool definitions to reflect new cluster_id
+        self.tool_manager.tools = self.tool_manager._define_tools()
         print(f"[{self.category}] Active cluster updated.")
 
 
@@ -37,11 +39,18 @@ class RepositoryAgent(BaseAgent):
         """Repository aracını çalıştırır - iyileştirilmiş context ile"""
         print("\n" + "="*50)
         print(f"[{self.category}] Araç çalıştırılıyor: '{tool_name}', Parametreler: {parameters}")
+        print(f"[{self.category}] Active Cluster ID: {self.active_cluster_id}")
         print("="*50 + "\n")
         
         # Original request'i güncelle
         if original_request:
             self.last_user_request = original_request
+        
+        # Validate cluster ID
+        if not self.active_cluster_id or self.active_cluster_id == "None":
+            error_msg = "Aktif cluster seçilmedi. Lütfen önce bir cluster seçin."
+            logger.error(f"[{self.category}] {error_msg}")
+            return self._create_error_response(error_msg)
         
         tool_function = getattr(self.repository_api, tool_name, None)
         if not tool_function:

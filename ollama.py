@@ -8,6 +8,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 class ModelType(Enum):
+    QWEN3_8B = "qwen3:8b"
     QWEN3_4B = "qwen3:4b"
     QWEN3_1_7B = "qwen3:1.7b"
 
@@ -33,7 +34,7 @@ class OllamaClient:
         self,
         ollama_url: str,
         kubex_url: str,
-        model_name: str = ModelType.QWEN3_4B.value
+        model_name: str = ModelType.QWEN3_8B.value
     ):
         self.ollama_url = ollama_url.rstrip('/')
         self.model_name = model_name

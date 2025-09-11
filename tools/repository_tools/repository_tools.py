@@ -39,9 +39,28 @@ class RepositoryAPITools:
                 "cluster_id": self.active_cluster_id
             }
     
-    def add_repository(self, name: str, url: str) -> Dict[str, Any]:
+    def add_repository(self, **kwargs) -> Dict[str, Any]:
         """Cluster'a yeni bir Helm repository ekler"""
         try:
+            # Extract required parameters
+            name = kwargs.get('name')
+            url = kwargs.get('url')
+            
+            # Validate required parameters
+            if not name:
+                return {
+                    "status": "error",
+                    "message": "Repository adı (name) gerekli",
+                    "cluster_id": self.active_cluster_id
+                }
+            
+            if not url:
+                return {
+                    "status": "error", 
+                    "message": "Repository URL'si (url) gerekli",
+                    "cluster_id": self.active_cluster_id
+                }
+            
             api_url = f"{self.base_url}/repositories/{self.active_cluster_id}/add"
             payload = {
                 "name": name,
@@ -49,11 +68,23 @@ class RepositoryAPITools:
             }
             
             logger.info(f"[RepositoryAPI] Repository ekleniyor: {name} -> {url}")
+            logger.info(f"[RepositoryAPI] API URL: {api_url}")
+            logger.info(f"[RepositoryAPI] Payload: {payload}")
             
             response = self.session.post(api_url, json=payload, timeout=30)
+            logger.info(f"[RepositoryAPI] Response status: {response.status_code}")
+            
             response.raise_for_status()
             
-            data = response.json()
+            # Check if response has content before trying to parse JSON
+            if response.content:
+                try:
+                    data = response.json()
+                except ValueError as e:
+                    logger.warning(f"[RepositoryAPI] Invalid JSON response: {e}")
+                    data = {"message": "Repository başarıyla eklendi"}
+            else:
+                data = {"message": "Repository başarıyla eklendi"}
             
             return {
                 "status": "success",
@@ -65,16 +96,35 @@ class RepositoryAPITools:
             
         except requests.exceptions.RequestException as e:
             logger.error(f"[RepositoryAPI] Repository eklenemedi: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_detail = e.response.json().get('detail', str(e))
+                except:
+                    error_detail = str(e)
+            else:
+                error_detail = str(e)
             return {
                 "status": "error",
-                "message": f"Repository eklenemedi: {str(e)}",
+                "message": f"Repository eklenemedi: {error_detail}",
                 "cluster_id": self.active_cluster_id,
-                "name": name
+                "name": name,
+                "url": url
             }
     
-    def delete_repository(self, repository_name: str) -> Dict[str, Any]:
+    def delete_repository(self, **kwargs) -> Dict[str, Any]:
         """Belirtilen Helm repository'yi siler"""
         try:
+            # Extract required parameter
+            repository_name = kwargs.get('repository_name')
+            
+            # Validate required parameter
+            if not repository_name:
+                return {
+                    "status": "error",
+                    "message": "Repository adı (repository_name) gerekli",
+                    "cluster_id": self.active_cluster_id
+                }
+            
             url = f"{self.base_url}/repositories/{self.active_cluster_id}/{repository_name}"
             
             logger.info(f"[RepositoryAPI] Repository siliniyor: {repository_name}")
@@ -126,9 +176,37 @@ class RepositoryAPITools:
                 "cluster_id": self.active_cluster_id
             }
     
-    def install_chart(self, chart: str, name: str, namespace: str, values: Optional[Dict] = None) -> Dict[str, Any]:
+    def install_chart(self, **kwargs) -> Dict[str, Any]:
         """Helm chart'ı cluster'a yükler"""
         try:
+            # Extract required parameters
+            chart = kwargs.get('chart')
+            name = kwargs.get('name')
+            namespace = kwargs.get('namespace')
+            values = kwargs.get('values')
+            
+            # Validate required parameters
+            if not chart:
+                return {
+                    "status": "error",
+                    "message": "Chart adı (chart) gerekli",
+                    "cluster_id": self.active_cluster_id
+                }
+            
+            if not name:
+                return {
+                    "status": "error",
+                    "message": "Release adı (name) gerekli",
+                    "cluster_id": self.active_cluster_id
+                }
+                
+            if not namespace:
+                return {
+                    "status": "error",
+                    "message": "Namespace adı (namespace) gerekli",
+                    "cluster_id": self.active_cluster_id
+                }
+            
             url = f"{self.base_url}/repositories/{self.active_cluster_id}/install"
             payload = {
                 "chart": chart,

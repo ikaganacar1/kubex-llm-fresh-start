@@ -26,6 +26,7 @@ if "agent_manager" not in st.session_state:
     st.session_state.show_debug = False
     st.session_state.cluster_list = [] # Cluster listesini saklamak için
     st.session_state.cluster_list_data = [] # İşlenmiş veriyi saklamak için yeni state
+    st.session_state.show_welcome = True # Karşılama ekranı kontrolü
 
 def parse_and_display_response(full_response: str):
     """LLM yanıtını ayrıştırır ve 'think' etiketlerini expander içine alır."""
@@ -66,12 +67,96 @@ def stream_with_parse(response_generator):
         parse_and_display_response(full_response)
     
     return full_response
+
+def show_welcome_screen():
+    """Karşılama ekranı - mevcut araçları ve kategorileri gösterir"""
+    st.markdown("---")
+    
+    if not st.session_state.connected or not st.session_state.agent_manager:
+        st.info("👈 Başlamak için lütfen kenar çubuğundan Ollama sunucusuna bağlanın.")
+        return
+    
+    active_cluster_name = getattr(st.session_state.agent_manager, 'active_cluster_name', None)
+    
+    
+    st.success(f"✅ **Aktif Cluster:** {active_cluster_name}")
+    st.markdown("### 🔧 Mevcut Agent Kategorileri ve Araçları")
+    
+    # Tüm kategorileri ve araçlarını göster
+    categories = st.session_state.agent_manager.get_available_categories()
+    
+    # Emoji mapping
+    emoji_map = {
+        "cluster": "🖥️",
+        "namespace": "📦", 
+        "deployment": "🚀",
+        "repository": "📚"
+    }
+    
+    # 2x2 grid layout
+    col1, col2 = st.columns(2)
+    
+    for i, category in enumerate(categories):
+        agent = st.session_state.agent_manager.agents[category]
+        tools = agent.get_tools()
+        emoji = emoji_map.get(category, "🔧")
+        
+        # Alternate between columns
+        current_col = col1 if i % 2 == 0 else col2
+        
+        with current_col:
+            with st.container():
+                st.markdown(f"#### {emoji} {agent.category}")
+                st.markdown(f"*{agent.description}*")
+                
+                # Araçları listele
+                with st.expander(f"📋 Araçlar ({len(tools)})", expanded=False):
+                    for tool_name, tool_info in tools.items():
+                        # Araç adı ve özet
+                        summary = tool_info.get('summary', 'Açıklama yok')
+                        if len(summary) > 100:
+                            summary = summary[:97] + "..."
+                        
+                        st.markdown(f"**`{tool_name}`**")
+                        st.markdown(f"↳ {summary}")
+                        
+                        # Parametreler
+                        params = tool_info.get('parameters', [])
+                        if params:
+                            required_params = [p['name'] for p in params if p.get('required') and p.get('name') != 'cluster_id']
+                            optional_params = [p['name'] for p in params if not p.get('required') and p.get('name') != 'cluster_id']
+                            
+                            param_text = ""
+                            if required_params:
+                                param_text += f"**Gerekli:** {', '.join(required_params)}"
+                            if optional_params:
+                                if param_text:
+                                    param_text += " | "
+                                param_text += f"*Opsiyonel:* {', '.join(optional_params)}"
+                            
+                            if param_text:
+                                st.caption(f"📝 {param_text}")
+                        
+                        st.markdown("---")
+                
+                st.markdown("")  # Add some spacing
+    
+    st.markdown("---")
+    st.markdown("### 💬 Nasıl Kullanılır?")
+    st.markdown("""
+    1. **Doğal dil ile soru sorun:** "prometheus repository'sini ekle", "deployment'ları listele"
+    2. **Agent otomatik seçilir:** Sistem ihtiyacınıza göre uygun agent'ı seçer
+    3. **Gerekli parametreler sorulur:** Eksik bilgiler form ile toplanır
+    4. **İşlem gerçekleştirilir:** API çağrıları yapılır ve sonuçlar gösterilir
+    """)
+        
+    return True
 # --- Kenar Çubuğu (Sidebar) ---
 with st.sidebar:
     st.header("⚙️ Yapılandırma")
     ollama_url = st.text_input("Ollama URL", value="http://ai.ikaganacar.com")
     kubex_url = st.text_input("Kubex URL", value="http://10.67.67.195:8000")
-    model_name = st.text_input("Model Adı", value="qwen3:4b")
+    model_name = st.text_input("Model Adı", value="qwen3:8b")
 
     if st.button("Bağlan", type="primary"):
         with st.spinner("Bağlanılıyor..."):
@@ -210,33 +295,14 @@ with st.sidebar:
                     
                     st.write("---")
         
-        elif st.session_state.connected:
-            st.divider()
-            st.subheader("🏠 Mevcut Kategoriler")
-            
-            # Tüm kategorileri kısa göster
-            categories = st.session_state.agent_manager.get_available_categories()
-            for category in categories:
-                agent = st.session_state.agent_manager.agents[category]
-                tool_count = len(agent.get_tools())
-                
-                # Emoji mapping
-                emoji_map = {
-                    "cluster": "🖥️",
-                    "namespace": "📦", 
-                    "deployment": "🚀",
-                    "repository": "📚"
-                }
-                emoji = emoji_map.get(category, "🔧")
-                
-                st.write(f"{emoji} **{agent.category}** ({tool_count} araç)")
-                
-                # Tüm araçları listele
-                tools = list(agent.get_tools().keys())
-                for tool in tools:
-                    st.caption(f"  • `{tool}`")
         
         st.divider()
+        
+        # Karşılama ekranı toggle
+        if st.button("🏠 Karşılama Ekranı", help="Araçları ve kullanım kılavuzunu göster"):
+            st.session_state.show_welcome = not st.session_state.show_welcome
+            st.rerun()
+        
         col1, col2 = st.columns(2)
         with col1:
             if st.button("🔄 Soft Reset"):
@@ -248,6 +314,7 @@ with st.sidebar:
             if st.button("🗑️ Full Reset"):
                 st.session_state.messages = []
                 st.session_state.pending_action = None
+                st.session_state.show_welcome = True  # Karşılama ekranını tekrar göster
                 if st.session_state.agent_manager:
                     st.session_state.agent_manager.reset_all_contexts()
                 # Cluster listesini de sıfırla ki tekrar çekilsin
@@ -258,20 +325,15 @@ with st.sidebar:
 # --- Ana Sohbet Arayüzü ---
 st.title("🧩 KUBEX Multi-Agent Asistanı")
 
-# Durum Bilgisi (Birleştirilmiş)
-if st.session_state.connected and st.session_state.agent_manager:
-    active_cluster_name = getattr(st.session_state.agent_manager, 'active_cluster_name', None)
-    if active_cluster_name:
-        status = st.session_state.agent_manager.get_current_status()
-        memory_size = status['global_context_size']
-        st.info(f"Seçili Cluster: **{active_cluster_name}**")
-    else:
-        st.warning("Lütfen kenar çubuğundan bir cluster seçerek başlayın.")
 
-# Geçmiş sohbet mesajlarını ekrana yazdır
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        parse_and_display_response(message["content"])
+# Karşılama ekranı veya geçmiş sohbet mesajları
+if st.session_state.show_welcome and len(st.session_state.messages) == 0:
+    show_welcome_screen()
+else:
+    # Geçmiş sohbet mesajlarını ekrana yazdır
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            parse_and_display_response(message["content"])
 
 # --- Sohbet Girişi ve Form Yönetimi ---
 if st.session_state.connected:
@@ -391,6 +453,9 @@ if st.session_state.connected:
         chat_placeholder = "Cluster seçin..." if chat_disabled else "Kubernetes ile ilgili bir soru sorun..."
 
         if prompt := st.chat_input(chat_placeholder, disabled=chat_disabled):
+            # Karşılama ekranını gizle
+            st.session_state.show_welcome = False
+            
             st.session_state.messages.append({"role": "user", "content": prompt})
             with st.chat_message("user"):
                 st.markdown(prompt)
@@ -419,5 +484,3 @@ if st.session_state.connected:
                         "content": error_msg
                     })
 
-else:
-    st.info("👈 Lütfen önce kenar çubuğundan Ollama sunucusuna bağlanın.")
